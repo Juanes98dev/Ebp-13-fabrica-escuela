@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(Sprint3Exception.class)
+    public ResponseEntity<ErrorResponse> handleSprint3(Sprint3Exception exception) {
+        return response(exception.getStatus(), "SPRINT3_ERROR", exception.getMessage());
+    }
+
     @ExceptionHandler({
         ClienteNoEncontradoException.class,
         CuentaNoEncontradaException.class

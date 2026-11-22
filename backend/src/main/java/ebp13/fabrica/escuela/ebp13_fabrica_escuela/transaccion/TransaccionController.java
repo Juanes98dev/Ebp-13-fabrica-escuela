@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/transacciones")
@@ -49,5 +52,10 @@ public class TransaccionController {
                 request.getMonto(),
                 request.getRemitente());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/cuenta/{numero}")
+    public ResponseEntity<List<TransaccionResponse>> historial(@PathVariable String numero) {
+        return ResponseEntity.ok(transaccionService.historial(numero));
     }
 }

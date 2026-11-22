@@ -1,8 +1,7 @@
 import { useState } from "react";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoClientes, IcoCuentas, IcoTransfer, IcoProductos, IcoReportes, IcoConfig, IcoAlert, IcoCheck, IcoClose, IcoChevron, IcoAdd } from "../shared/icons";
-import { validarCedula } from "../shared/helpers";
-import { createClient, storeClient } from "../shared/api";
+import { validarCedula, generarIdCliente } from "../shared/helpers";
 import type { ManagerFormData, ManagerFormErrors } from "../shared/types";
 
 const MANAGER_NAV = [
@@ -61,19 +60,13 @@ export default function ManagerView() {
     return e;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const errs = validate();
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    try {
-      const client = await createClient(form);
-      storeClient(client);
-      setClienteId(client.idCliente);
-      setSubmitted(true);
-    } catch (err) {
-      setErrors({ cedula: err instanceof Error ? err.message : "No fue posible registrar el cliente." });
-    }
+    setClienteId(generarIdCliente());
+    setSubmitted(true);
   }
 
   function handleReset() {

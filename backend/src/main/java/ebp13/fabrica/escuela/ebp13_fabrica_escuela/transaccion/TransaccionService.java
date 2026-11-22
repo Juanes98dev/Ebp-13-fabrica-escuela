@@ -11,6 +11,7 @@ import java.security.SecureRandom;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.List;
 
 @Service
 public class TransaccionService {
@@ -142,6 +143,16 @@ public class TransaccionService {
             referencia = "REF-%06d".formatted(RANDOM.nextInt(1_000_000));
         } while (transaccionRepository.existsByReferencia(referencia));
         return referencia;
+    }
+
+    @Transactional(readOnly = true)
+    public List<TransaccionResponse> historial(String numeroCuenta) {
+        buscarCuenta(numeroCuenta);
+        return transaccionRepository
+                .findByCuentaOrigenOrCuentaDestinoOrderByFechaDesc(numeroCuenta, numeroCuenta)
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     private TransaccionResponse toResponse(Transaccion transaccion) {

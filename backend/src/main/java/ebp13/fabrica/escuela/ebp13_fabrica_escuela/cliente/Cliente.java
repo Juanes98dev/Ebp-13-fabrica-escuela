@@ -36,6 +36,15 @@ public class Cliente {
     private String ciudad;
     private String departamento;
 
+    @Column(length = 120)
+    private String passwordHash;
+
+    @Column(nullable = false)
+    private String rol = "CLIENTE";
+
+    @Column(nullable = false, length = 2)
+    private String idiomaPreferido = "es";
+
     @Column(nullable = false)
     private boolean activo = true;
 
@@ -165,5 +174,29 @@ public class Cliente {
 
     public void setActivo(boolean activo) {
         this.activo = activo;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    public String getRol() {
+        return rol;
+    }
+
+    public void setRol(String rol) {
+        this.rol = rol;
+    }
+
+    public String getIdiomaPreferido() {
+        return idiomaPreferido;
+    }
+
+    public void setIdiomaPreferido(String idiomaPreferido) {
+        this.idiomaPreferido = idiomaPreferido;
     }
 }

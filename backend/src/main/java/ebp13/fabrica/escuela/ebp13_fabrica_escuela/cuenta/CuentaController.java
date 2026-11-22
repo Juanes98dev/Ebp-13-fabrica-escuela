@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 @RestController
 @RequestMapping("/api/cuentas")
@@ -38,5 +40,13 @@ public class CuentaController {
     public ResponseEntity<List<CuentaResponse>> listarPorCliente(
             @PathVariable Long clienteId) {
         return ResponseEntity.ok(cuentaService.listarPorCliente(clienteId));
+    }
+
+    @PatchMapping("/{numero}/desactivar")
+    public ResponseEntity<CuentaResponse> desactivar(
+            @PathVariable String numero,
+            @RequestHeader(value = "X-Rol", defaultValue = "") String rol,
+            @RequestHeader(value = "X-Usuario-Id", defaultValue = "0") Long gestorId) {
+        return ResponseEntity.ok(cuentaService.desactivar(numero, rol, gestorId));
     }
 }

@@ -4,8 +4,17 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaDuplicadaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaInvalidaException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteInactivoException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteNoEncontradoException;
 import java.security.SecureRandom;
 import java.util.List;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.CuentaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionActiva;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,9 +27,18 @@ public class ClienteService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ClienteRepository clienteRepository;
+    private CuentaRepository cuentaRepository;
+    private AuditoriaRepository auditoriaRepository;
+    private SesionRepository sesionRepository;
 
-    public ClienteService(ClienteRepository clienteRepository) {
+    public ClienteService(ClienteRepository clienteRepository,
+                          CuentaRepository cuentaRepository,
+                          AuditoriaRepository auditoriaRepository,
+                          SesionRepository sesionRepository) {
         this.clienteRepository = clienteRepository;
+        this.cuentaRepository = cuentaRepository;
+        this.auditoriaRepository = auditoriaRepository;
+        this.sesionRepository = sesionRepository;
     }
 
     @Transactional
@@ -59,6 +77,73 @@ public class ClienteService {
                 .stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ClienteResponse buscar(String valor) {
+        String normalized = valor == null ? "" : valor.trim();
+        Cliente cliente = clienteRepository.findByCedula(normalized)
+                .or(() -> clienteRepository.findAll().stream()
+                        .filter(item -> normalized.equalsIgnoreCase(item.getIdCliente()))
+                        .findFirst())
+                .orElseThrow(() -> new ClienteNoEncontradoException(
+                        "No existe el cliente con criterio " + normalized));
+        return toResponse(cliente);
+    }
+
+    @Transactional
+    public ClienteResponse modificar(Long id, String rol, Long gestorId, ClienteRequest request) {
+        validarGestor(rol);
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(
+                () -> new ClienteNoEncontradoException("No existe el cliente con id " + id));
+        if (!cliente.isActivo()) {
+            throw new ClienteInactivoException("El cliente está inactivo");
+        }
+        if (request.getEmail() == null || !request.getEmail().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "Correo electrónico inválido");
+        }
+        if (request.getTelefono() == null || !request.getTelefono().matches("^[0-9+() -]{7,20}$")) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "Teléfono inválido");
+        }
+        String anterior = cliente.getEmail() + "|" + cliente.getTelefono() + "|" + cliente.getDireccion();
+        cliente.setEmail(request.getEmail());
+        cliente.setTelefono(request.getTelefono());
+        cliente.setDireccion(request.getDireccion());
+        cliente = clienteRepository.save(cliente);
+        String nuevo = cliente.getEmail() + "|" + cliente.getTelefono() + "|" + cliente.getDireccion();
+        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "MODIFICAR_CLIENTE",
+                "CLIENTE", id.toString(), anterior, nuevo));
+        return toResponse(cliente);
+    }
+
+    @Transactional
+    public ClienteResponse desactivar(Long id, String rol, Long gestorId) {
+        validarGestor(rol);
+        Cliente cliente = clienteRepository.findById(id).orElseThrow(
+                () -> new ClienteNoEncontradoException("No existe el cliente con id " + id));
+        if (!cliente.isActivo()) {
+            throw new ClienteInactivoException("El cliente ya está inactivo");
+        }
+        boolean cuentasActivas = cuentaRepository.findByCliente_Id(id).stream().anyMatch(c -> c.isActiva());
+        if (cuentasActivas) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
+                    "No es posible desactivar un cliente con cuentas activas");
+        }
+        cliente.setActivo(false);
+        cliente = clienteRepository.save(cliente);
+        for (SesionActiva sesion : sesionRepository.findByUsuarioIdAndActivaTrue(id)) {
+            sesion.setActiva(false);
+            sesionRepository.save(sesion);
+        }
+        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "DESACTIVAR_CLIENTE",
+                "CLIENTE", id.toString(), "activo", "inactivo"));
+        return toResponse(cliente);
+    }
+
+    private void validarGestor(String rol) {
+        if (!"GESTOR".equalsIgnoreCase(rol)) {
+            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "Solo disponible para gestor");
+        }
     }
 
     private void validarCedula(String cedula) {

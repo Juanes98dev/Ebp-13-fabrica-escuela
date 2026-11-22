@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo, IcoShield } from "../shared/icons";
 import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { HISTORIAL_INICIAL, CANALES_CONSIGNACION } from "../shared/data";
-import { deposit, getAccount, getAccountsByClient, getActiveClient, getStoredAccounts, storeAccount, toCuenta } from "../shared/api";
+import { CLIENTE_ACTIVO, CUENTAS_SISTEMA, HISTORIAL_INICIAL, CANALES_CONSIGNACION } from "../shared/data";
 import type { Cuenta, Transaccion } from "../shared/types";
+import { apiRequest } from "../shared/api";
 
 const CLIENT_NAV = [
   { id: "inicio", label: "Inicio", icon: <IcoDash /> },
@@ -17,6 +18,13 @@ const CLIENT_NAV = [
 ];
 
 type DpStep = "form" | "confirm" | "success";
+
+type ApiAccount = {
+  numeroCuenta: string;
+  tipo: "AHORROS" | "CORRIENTE";
+  saldo: number;
+  activa: boolean;
+};
 
 const STEPS = [
   { key: "form", label: "Datos de la consignación", num: 1 },
@@ -46,26 +54,23 @@ function Stepper({ step }: { step: DpStep }) {
   );
 }
 
-function buscarCuentaDeposito(num: string, cuentas: Cuenta[], nombreCliente: string): { nombre: string; tipo: string; activa: boolean } | null {
+function buscarCuentaDeposito(num: string, cuentas: Cuenta[]): { nombre: string; tipo: string; activa: boolean } | null {
   const propia = cuentas.find((c) => c.numero === num);
-  if (propia) return { nombre: nombreCliente, tipo: propia.tipo, activa: true };
-  return null;
+  if (propia) return { nombre: CLIENTE_ACTIVO.nombre, tipo: propia.tipo, activa: true };
+  return CUENTAS_SISTEMA[num] ?? null;
 }
 
 export default function DepositView() {
-  const activeClient = getActiveClient();
+  const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(() => {
-    const stored = getStoredAccounts();
-    return stored.map(toCuenta);
-  });
+  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<DpStep>("form");
 
-  const [cuentaDestinoNum, setCuentaDestinoNum] = useState(cuentas[0]?.numero ?? "");
+  const [cuentaDestinoNum, setCuentaDestinoNum] = useState(cuentas[0].numero);
   const [destinoManual, setDestinoManual] = useState(false);
-  const [destinoInput, setDestinoInput] = useState(cuentas[0]?.numero ?? "");
-  const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("idle");
+  const [destinoInput, setDestinoInput] = useState(cuentas[0].numero);
+  const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("ok");
   const [canal, setCanal] = useState("efectivo");
   const [montoStr, setMontoStr] = useState("");
   const [concepto, setConcepto] = useState("");
@@ -73,37 +78,45 @@ export default function DepositView() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [referencia, setReferencia] = useState("");
 
-  const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
-  const destinoInfo = buscarCuentaDeposito(cuentaDestinoNum, cuentas, activeClient?.nombre ?? "Cliente");
-  const cuentaPropia = cuentas.find((c) => c.numero === cuentaDestinoNum);
-
   useEffect(() => {
-    if (!activeClient) return;
-    getAccountsByClient(activeClient.id).then((accounts) => {
-      accounts.forEach(storeAccount);
-      const next = accounts.map(toCuenta);
-      setCuentas(next);
-      if (!cuentaDestinoNum && next[0]) {
-        setCuentaDestinoNum(next[0].numero);
-        setDestinoInput(next[0].numero);
-        setDestinoStatus("ok");
-      }
-    }).catch((err) => setFieldErrors({ destino: err instanceof Error ? err.message : "No fue posible cargar las cuentas." }));
-  }, [activeClient?.id, cuentaDestinoNum]);
+    const clienteId = window.localStorage.getItem("bancox-user-id");
+    if (!clienteId) return;
+    apiRequest<ApiAccount[]>(`/api/cuentas/cliente/${clienteId}`)
+      .then((accounts) => {
+        const loaded = accounts.filter((account) => account.activa).map((account) => ({
+          numero: account.numeroCuenta,
+          tipo: account.tipo === "AHORROS" ? "Ahorros" : "Corriente",
+          saldo: Number(account.saldo),
+        }));
+        if (loaded.length > 0) {
+          setCuentas(loaded);
+          setCuentaDestinoNum(loaded[0].numero);
+          setDestinoInput(loaded[0].numero);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
+  const destinoInfo = buscarCuentaDeposito(cuentaDestinoNum, cuentas);
+  const cuentaPropia = cuentas.find((c) => c.numero === cuentaDestinoNum);
 
   function formatMonto(val: string) {
     const digits = val.replace(/\D/g, "");
     return digits ? Number(digits).toLocaleString("es-CO") : "";
   }
 
-  function handleDestinoBlur() {
+  async function handleDestinoBlur() {
     if (!destinoInput.trim()) return;
     setCuentaDestinoNum(destinoInput.trim());
     setDestinoStatus("checking");
-    getAccount(destinoInput.trim()).then((account) => {
-      if (!account.activa) setDestinoStatus("inactive");
-      else { setDestinoStatus("ok"); setCuentaDestinoNum(destinoInput.trim()); }
-    }).catch(() => setDestinoStatus("notfound"));
+    try {
+      const info = await apiRequest<ApiAccount>(`/api/cuentas/${destinoInput.trim()}`);
+      setDestinoStatus(info.activa ? "ok" : "inactive");
+      if (info.activa) setCuentaDestinoNum(destinoInput.trim());
+    } catch {
+      setDestinoStatus("notfound");
+    }
   }
 
   function handleSelectPropia(num: string) {
@@ -137,16 +150,19 @@ export default function DepositView() {
 
   async function handleConfirm() {
     try {
-      const response = await deposit(cuentaDestinoNum, monto, remitente);
-      const account = await getAccount(cuentaDestinoNum);
-      storeAccount(account);
-      const nuevaTx: Transaccion = { id: String(response.id), fecha: response.fecha, tipo: "recibida", descripcion: response.descripcion || "Consignación", monto: response.monto, cuentaOrigen: response.cuentaOrigen, cuentaDestino: response.cuentaDestino, referencia: response.referencia };
+      const tx = await apiRequest<{ referencia: string }>("/api/transacciones/consignacion", {
+        method: "POST",
+        body: JSON.stringify({
+          cuentaDestino: cuentaDestinoNum,
+          monto,
+          remitente,
+        }),
+      });
+      setReferencia(tx.referencia);
       setCuentas((prev) => prev.map((c) => c.numero === cuentaDestinoNum ? { ...c, saldo: c.saldo + monto } : c));
-      setHistorial((prev) => [nuevaTx, ...prev]);
-      setReferencia(response.referencia);
       setStep("success");
-    } catch (err) {
-      setFieldErrors({ destino: err instanceof Error ? err.message : "No fue posible registrar la consignación." });
+    } catch (error) {
+      setFieldErrors({ monto: error instanceof Error ? error.message : "No fue posible realizar la consignación" });
       setStep("form");
     }
   }
@@ -158,15 +174,15 @@ export default function DepositView() {
     setCanal("efectivo");
     setFieldErrors({});
     setDestinoManual(false);
-    setDestinoInput(cuentas[0]?.numero ?? "");
-    setCuentaDestinoNum(cuentas[0]?.numero ?? "");
-    setDestinoStatus(cuentas[0] ? "ok" : "idle");
+    setDestinoInput(cuentas[0].numero);
+    setCuentaDestinoNum(cuentas[0].numero);
+    setDestinoStatus("ok");
     setStep("form");
   }
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={activeClient?.nombre ?? "Cliente no registrado"} userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"} userInitials={activeClient?.iniciales ?? "?"} badge="Banca Personal" />
+      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -202,7 +218,7 @@ export default function DepositView() {
                         <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
                         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Cuenta destino</span>
                       </div>
-                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else if (cuentas[0]) { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
+                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
                         {destinoManual ? "← Mis cuentas" : "Otra cuenta"}
                       </button>
                     </div>
@@ -437,7 +453,7 @@ export default function DepositView() {
                         <div className="flex items-end justify-between">
                           <div>
                             <div className="text-xs opacity-60 mb-0.5">Titular</div>
-                            <div className="text-sm font-semibold" style={{ fontFamily: "Instrument Sans,sans-serif" }}>{activeClient?.nombre ?? "Cliente no registrado"}</div>
+                            <div className="text-sm font-semibold" style={{ fontFamily: "Instrument Sans,sans-serif" }}>{CLIENTE_ACTIVO.nombre}</div>
                           </div>
                           <div className="text-right">
                             <div className="text-xs opacity-60 mb-0.5">Saldo disponible</div>
@@ -475,7 +491,7 @@ export default function DepositView() {
                   </div>
                   <div className="flex gap-3">
                     <button onClick={handleReset} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Nueva consignación</button>
-                    <button onClick={() => setActiveNav("inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
+                    <button onClick={() => navigate("/inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
                   </div>
                 </div>
               )}

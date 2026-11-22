@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo } from "../shared/icons";
 import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { HISTORIAL_INICIAL, CANALES_RETIRO } from "../shared/data";
-import { getAccount, getAccountsByClient, getActiveClient, getStoredAccounts, storeAccount, toCuenta, withdraw } from "../shared/api";
+import { CLIENTE_ACTIVO, HISTORIAL_INICIAL, CANALES_RETIRO } from "../shared/data";
 import type { Cuenta, Transaccion } from "../shared/types";
+import { apiRequest } from "../shared/api";
 
 const CLIENT_NAV = [
   { id: "inicio", label: "Inicio", icon: <IcoDash /> },
@@ -17,6 +18,13 @@ const CLIENT_NAV = [
 ];
 
 type WdStep = "form" | "confirm" | "success";
+
+type ApiAccount = {
+  numeroCuenta: string;
+  tipo: "AHORROS" | "CORRIENTE";
+  saldo: number;
+  activa: boolean;
+};
 
 const STEPS = [
   { key: "form", label: "Datos del retiro", num: 1 },
@@ -47,16 +55,13 @@ function Stepper({ step }: { step: WdStep }) {
 }
 
 export default function WithdrawView() {
-  const activeClient = getActiveClient();
+  const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(() => {
-    const stored = getStoredAccounts();
-    return stored.map(toCuenta);
-  });
+  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<WdStep>("form");
 
-  const [cuentaNum, setCuentaNum] = useState(cuentas[0]?.numero ?? "");
+  const [cuentaNum, setCuentaNum] = useState(cuentas[0].numero);
   const [montoStr, setMontoStr] = useState("");
   const [canal, setCanal] = useState("cajero");
   const [concepto, setConcepto] = useState("");
@@ -64,18 +69,26 @@ export default function WithdrawView() {
   const [referencia, setReferencia] = useState("");
   const [codigoRetiro, setCodigoRetiro] = useState("");
 
-  const cuenta = cuentas.find((c) => c.numero === cuentaNum) ?? { numero: "", tipo: "", saldo: 0 };
-  const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
-
   useEffect(() => {
-    if (!activeClient) return;
-    getAccountsByClient(activeClient.id).then((accounts) => {
-      accounts.forEach(storeAccount);
-      const next = accounts.map(toCuenta);
-      setCuentas(next);
-      if (!cuentaNum && next[0]) setCuentaNum(next[0].numero);
-    }).catch((err) => setFieldErrors({ cuenta: err instanceof Error ? err.message : "No fue posible cargar las cuentas." }));
-  }, [activeClient?.id, cuentaNum]);
+    const clienteId = window.localStorage.getItem("bancox-user-id");
+    if (!clienteId) return;
+    apiRequest<ApiAccount[]>(`/api/cuentas/cliente/${clienteId}`)
+      .then((accounts) => {
+        const loaded = accounts.filter((account) => account.activa).map((account) => ({
+          numero: account.numeroCuenta,
+          tipo: account.tipo === "AHORROS" ? "Ahorros" : "Corriente",
+          saldo: Number(account.saldo),
+        }));
+        if (loaded.length > 0) {
+          setCuentas(loaded);
+          setCuentaNum(loaded[0].numero);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const cuenta = cuentas.find((c) => c.numero === cuentaNum)!;
+  const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
 
   function formatMonto(val: string) {
     const digits = val.replace(/\D/g, "");
@@ -104,16 +117,15 @@ export default function WithdrawView() {
 
   async function handleConfirm() {
     try {
-      const response = await withdraw(cuentaNum, monto);
-      const account = await getAccount(cuentaNum);
-      storeAccount(account);
-      const nuevaTx: Transaccion = { id: String(response.id), fecha: response.fecha, tipo: "enviada", descripcion: response.descripcion || "Retiro", monto: response.monto, cuentaOrigen: response.cuentaOrigen, cuentaDestino: response.cuentaDestino, referencia: response.referencia };
+      const tx = await apiRequest<{ referencia: string }>("/api/transacciones/retiro", {
+        method: "POST",
+        body: JSON.stringify({ numeroCuenta: cuentaNum, monto }),
+      });
+      setReferencia(tx.referencia);
       setCuentas((prev) => prev.map((c) => c.numero === cuentaNum ? { ...c, saldo: c.saldo - monto } : c));
-      setHistorial((prev) => [nuevaTx, ...prev]);
-      setReferencia(response.referencia);
       setStep("success");
-    } catch (err) {
-      setFieldErrors({ monto: err instanceof Error ? err.message : "No fue posible registrar el retiro." });
+    } catch (error) {
+      setFieldErrors({ monto: error instanceof Error ? error.message : "No fue posible realizar el retiro" });
       setStep("form");
     }
   }
@@ -128,7 +140,7 @@ export default function WithdrawView() {
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={activeClient?.nombre ?? "Cliente no registrado"} userSub={activeClient ? `CC ${activeClient.cedula}` : "Registra un cliente"} userInitials={activeClient?.iniciales ?? "?"} badge="Banca Personal" />
+      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -298,7 +310,7 @@ export default function WithdrawView() {
                     </div>
                     <div className="px-6 py-5 flex flex-col gap-3" style={{ background: "#130d24" }}>
                       {[
-                        { label: "Titular", value: activeClient?.nombre ?? "—" },
+                        { label: "Titular", value: CLIENTE_ACTIVO.nombre },
                         { label: "Cuenta debitada", value: `${cuenta.tipo} · ${cuentaNum}` },
                         { label: "Canal de retiro", value: CANALES_RETIRO.find((c) => c.id === canal)?.label ?? canal },
                         { label: "Monto", value: fmtCOP(monto), highlight: true },
@@ -391,7 +403,7 @@ export default function WithdrawView() {
                   </div>
                   <div className="flex gap-3">
                     <button onClick={handleReset} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Nuevo retiro</button>
-                    <button onClick={() => setActiveNav("inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
+                    <button onClick={() => navigate("/inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
                   </div>
                 </div>
               )}

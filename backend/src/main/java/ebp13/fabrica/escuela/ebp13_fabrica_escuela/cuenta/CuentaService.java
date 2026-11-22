@@ -10,6 +10,11 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.exception.CuentaNoEnco
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.List;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.tarjeta.TarjetaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +25,18 @@ public class CuentaService {
 
     private final CuentaRepository cuentaRepository;
     private final ClienteRepository clienteRepository;
+    private final TarjetaRepository tarjetaRepository;
+    private final AuditoriaRepository auditoriaRepository;
 
     public CuentaService(
             CuentaRepository cuentaRepository,
-            ClienteRepository clienteRepository) {
+            ClienteRepository clienteRepository,
+            TarjetaRepository tarjetaRepository,
+            AuditoriaRepository auditoriaRepository) {
         this.cuentaRepository = cuentaRepository;
         this.clienteRepository = clienteRepository;
+        this.tarjetaRepository = tarjetaRepository;
+        this.auditoriaRepository = auditoriaRepository;
     }
 
     @Transactional
@@ -47,6 +58,31 @@ public class CuentaService {
         cuenta.setCliente(cliente);
 
         return toResponse(cuentaRepository.save(cuenta));
+    }
+
+    @Transactional
+    public CuentaResponse desactivar(String numero, String rol, Long gestorId) {
+        if (!"GESTOR".equalsIgnoreCase(rol)) {
+            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "Solo disponible para gestor");
+        }
+        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(numero).orElseThrow(
+                () -> new CuentaNoEncontradaException("No existe la cuenta con número " + numero));
+        if (cuenta.getSaldo().compareTo(BigDecimal.ZERO) > 0) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
+                    "La cuenta tiene saldo disponible; debe retirarse o transferirse antes de desactivarla");
+        }
+        boolean tarjetaActiva = tarjetaRepository.findByCuenta_IdAndEstadoNot(cuenta.getId(), "eliminada")
+                .stream()
+                .anyMatch(t -> !"eliminada".equals(t.getEstado()) && !"rechazada".equals(t.getEstado()));
+        if (tarjetaActiva) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
+                    "Debe eliminar las tarjetas activas asociadas a la cuenta");
+        }
+        cuenta.setActiva(false);
+        cuenta = cuentaRepository.save(cuenta);
+        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "DESACTIVAR_CUENTA",
+                "CUENTA", cuenta.getId().toString(), "activa", "inactiva"));
+        return toResponse(cuenta);
     }
 
     @Transactional(readOnly = true)

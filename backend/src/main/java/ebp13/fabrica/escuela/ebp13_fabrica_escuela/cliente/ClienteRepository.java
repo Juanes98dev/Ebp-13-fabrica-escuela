@@ -10,4 +10,6 @@ public interface ClienteRepository extends JpaRepository<Cliente, Long> {
     boolean existsByIdCliente(String idCliente);
 
     Optional<Cliente> findByCedula(String cedula);
+
+    Optional<Cliente> findByEmailIgnoreCase(String email);
 }
