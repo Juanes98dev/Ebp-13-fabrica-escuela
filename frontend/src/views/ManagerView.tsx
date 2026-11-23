@@ -1,8 +1,9 @@
 import { useState } from "react";
 import Sidebar from "../shared/Sidebar";
 import { IcoDash, IcoClientes, IcoCuentas, IcoTransfer, IcoProductos, IcoReportes, IcoConfig, IcoAlert, IcoCheck, IcoClose, IcoChevron, IcoAdd } from "../shared/icons";
-import { validarCedula, generarIdCliente } from "../shared/helpers";
+import { validarCedula } from "../shared/helpers";
 import type { ManagerFormData, ManagerFormErrors } from "../shared/types";
+import { apiRequest } from "../shared/api";
 
 const MANAGER_NAV = [
   { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
@@ -13,6 +14,60 @@ const MANAGER_NAV = [
   { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
   { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
 ];
+
+function Field({
+  label,
+  name,
+  value,
+  error,
+  type = "text",
+  placeholder,
+  required,
+  hint,
+  onChange,
+}: {
+  label: string;
+  name: keyof ManagerFormData;
+  value: string;
+  error?: string;
+  type?: string;
+  placeholder?: string;
+  required?: boolean;
+  hint?: string;
+  onChange: (name: keyof ManagerFormData, value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>
+        {label}{required && <span style={{ color: "#a855f7" }}> *</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(name, event.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-all duration-150"
+        style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${error ? "#ef4444" : "rgba(139,92,246,0.22)"}`, color: "#f1eeff" }}
+        onFocus={(event) => { event.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; event.currentTarget.style.borderColor = error ? "#ef4444" : "rgba(139,92,246,0.55)"; }}
+        onBlur={(event) => { event.currentTarget.style.boxShadow = "none"; event.currentTarget.style.borderColor = error ? "#ef4444" : "rgba(139,92,246,0.22)"; }}
+      />
+      {error && <span className="flex items-center gap-1 text-xs mt-0.5" style={{ color: "#f87171" }}><IcoAlert />{error}</span>}
+      {hint && !error && <span className="text-xs mt-0.5" style={{ color: "#7c6fa0" }}>{hint}</span>}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl p-6" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
+      <div className="flex items-center gap-2.5 mb-5">
+        <div className="w-1 h-5 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
+        <h2 className="text-sm font-semibold" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export default function ManagerView() {
   const [activeNav, setActiveNav] = useState("clientes");
@@ -60,13 +115,36 @@ export default function ManagerView() {
     return e;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const errs = validate();
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
-    setClienteId(generarIdCliente());
-    setSubmitted(true);
+    try {
+      const cliente = await apiRequest<{ idCliente: string }>("/api/clientes", {
+        method: "POST",
+        body: JSON.stringify({
+          cedula: form.cedula,
+          primerNombre: form.primerNombre,
+          segundoNombre: form.segundoNombre,
+          primerApellido: form.primerApellido,
+          segundoApellido: form.segundoApellido,
+          fechaNacimiento: form.fechaNacimiento,
+          genero: form.genero,
+          email: form.email,
+          telefono: form.telefono,
+          direccion: form.direccion,
+          ciudad: form.ciudad,
+          departamento: form.departamento,
+        }),
+      });
+      setClienteId(cliente.idCliente);
+      setSubmitted(true);
+    } catch (error) {
+      setErrors({
+        cedula: error instanceof Error ? error.message : "No fue posible registrar el cliente",
+      });
+    }
   }
 
   function handleReset() {
@@ -77,37 +155,10 @@ export default function ManagerView() {
     setClienteId("");
   }
 
-  const Field = ({ label, name, type = "text", placeholder, required, hint }: {
-    label: string; name: keyof ManagerFormData; type?: string; placeholder?: string; required?: boolean; hint?: string;
-  }) => (
-    <div className="flex flex-col gap-1">
-      <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>
-        {label}{required && <span style={{ color: "#a855f7" }}> *</span>}
-      </label>
-      <input
-        type={type}
-        value={form[name]}
-        onChange={(ev) => { setForm((f) => ({ ...f, [name]: ev.target.value })); setErrors((e) => ({ ...e, [name]: undefined })); }}
-        placeholder={placeholder}
-        className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-all duration-150"
-        style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${errors[name] ? "#ef4444" : "rgba(139,92,246,0.22)"}`, color: "#f1eeff" }}
-        onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; ev.currentTarget.style.borderColor = errors[name] ? "#ef4444" : "rgba(139,92,246,0.55)"; }}
-        onBlur={(ev) => { ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.borderColor = errors[name] ? "#ef4444" : "rgba(139,92,246,0.22)"; }}
-      />
-      {errors[name] && <span className="flex items-center gap-1 text-xs mt-0.5" style={{ color: "#f87171" }}><IcoAlert />{errors[name]}</span>}
-      {hint && !errors[name] && <span className="text-xs mt-0.5" style={{ color: "#7c6fa0" }}>{hint}</span>}
-    </div>
-  );
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section className="rounded-2xl p-6" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-      <div className="flex items-center gap-2.5 mb-5">
-        <div className="w-1 h-5 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
-        <h2 className="text-sm font-semibold" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{title}</h2>
-      </div>
-      {children}
-    </section>
-  );
+  function handleFieldChange(name: keyof ManagerFormData, value: string) {
+    setForm((current) => ({ ...current, [name]: value }));
+    setErrors((current) => ({ ...current, [name]: undefined }));
+  }
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
@@ -194,11 +245,11 @@ export default function ManagerView() {
 
               <Section title="Datos Personales">
                 <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                  <Field label="Primer Nombre" name="primerNombre" placeholder="Ej: María" required />
-                  <Field label="Segundo Nombre" name="segundoNombre" placeholder="Ej: Fernanda" />
-                  <Field label="Primer Apellido" name="primerApellido" placeholder="Ej: García" required />
-                  <Field label="Segundo Apellido" name="segundoApellido" placeholder="Ej: López" />
-                  <Field label="Fecha de Nacimiento" name="fechaNacimiento" type="date" required />
+                  <Field label="Primer Nombre" name="primerNombre" value={form.primerNombre} error={errors.primerNombre} placeholder="Ej: María" required onChange={handleFieldChange} />
+                  <Field label="Segundo Nombre" name="segundoNombre" value={form.segundoNombre} error={errors.segundoNombre} placeholder="Ej: Fernanda" onChange={handleFieldChange} />
+                  <Field label="Primer Apellido" name="primerApellido" value={form.primerApellido} error={errors.primerApellido} placeholder="Ej: García" required onChange={handleFieldChange} />
+                  <Field label="Segundo Apellido" name="segundoApellido" value={form.segundoApellido} error={errors.segundoApellido} placeholder="Ej: López" onChange={handleFieldChange} />
+                  <Field label="Fecha de Nacimiento" name="fechaNacimiento" value={form.fechaNacimiento} error={errors.fechaNacimiento} type="date" required onChange={handleFieldChange} />
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Género <span style={{ color: "#a855f7" }}>*</span></label>
                     <select value={form.genero} onChange={(ev) => { setForm((f) => ({ ...f, genero: ev.target.value })); setErrors((e) => ({ ...e, genero: undefined })); }} className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none appearance-none" style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${errors.genero ? "#ef4444" : "rgba(139,92,246,0.22)"}`, color: form.genero ? "#f1eeff" : "#7c6fa0" }}>
@@ -215,10 +266,10 @@ export default function ManagerView() {
 
               <Section title="Información de Contacto">
                 <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                  <Field label="Correo Electrónico" name="email" type="email" placeholder="correo@ejemplo.com" required />
-                  <Field label="Teléfono" name="telefono" placeholder="Ej: 3001234567" required hint="Sin espacios ni guiones." />
-                  <div className="col-span-2"><Field label="Dirección de Residencia" name="direccion" placeholder="Calle 45 #23-10, Apto 301" /></div>
-                  <Field label="Ciudad" name="ciudad" placeholder="Ej: Bogotá" required />
+                  <Field label="Correo Electrónico" name="email" value={form.email} error={errors.email} type="email" placeholder="correo@ejemplo.com" required onChange={handleFieldChange} />
+                  <Field label="Teléfono" name="telefono" value={form.telefono} error={errors.telefono} placeholder="Ej: 3001234567" required hint="Sin espacios ni guiones." onChange={handleFieldChange} />
+                  <div className="col-span-2"><Field label="Dirección de Residencia" name="direccion" value={form.direccion} error={errors.direccion} placeholder="Calle 45 #23-10, Apto 301" onChange={handleFieldChange} /></div>
+                  <Field label="Ciudad" name="ciudad" value={form.ciudad} error={errors.ciudad} placeholder="Ej: Bogotá" required onChange={handleFieldChange} />
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Departamento</label>
                     <select value={form.departamento} onChange={(ev) => setForm((f) => ({ ...f, departamento: ev.target.value }))} className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none appearance-none" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.22)", color: form.departamento ? "#f1eeff" : "#7c6fa0" }}>
