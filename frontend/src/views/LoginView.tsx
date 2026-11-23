@@ -159,9 +159,7 @@ export default function LoginView() {
                   Este es el resumen financiero de tus productos Banco X.
                 </p>
               </div>
-              <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">
-                HU-02-02-01
-              </span>
+              
             </div>
 
             <div
@@ -384,9 +382,7 @@ export default function LoginView() {
                 Ingresa tus credenciales para acceder.
               </p>
             </div>
-            <span className="px-2.5 py-1 rounded-md text-xs bg-purple-600/15 text-purple-200 border border-border">
-              HU-02-02-01
-            </span>
+            
           </div>
 
           {status === "error" && (
@@ -582,23 +578,10 @@ export default function LoginView() {
               </span>
               <div className="text-xs text-text-muted leading-relaxed">
                 <span className="font-semibold text-purple-200">
-                  Datos para probar:
+                  Acceso exclusivo para gestores
                 </span>
                 <br />
-                Acceso activo:{" "}
-                <span className="text-text-secondary">
-                  valentina.morales / BancoX2026!
-                </span>
-                <br />
-                Gestor bancario:{" "}
-                <span className="text-text-secondary">
-                  gestor.rodriguez / GestorBX2026!
-                </span>
-                <br />
-                Cliente inactivo:{" "}
-                <span className="text-text-secondary">
-                  usuario.inactivo / BancoX2026!
-                </span>
+                Usa tu cédula y contraseña configuradas por el administrador.
               </div>
             </div>
             {(status === "locked" || attempts > 0) && (

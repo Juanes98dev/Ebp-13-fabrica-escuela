@@ -133,7 +133,7 @@ export default function CustomerLookupView() {
           <div className="flex items-center gap-2 text-sm text-text-muted">
             <span>Clientes</span><IcoChevron /><span className="text-text-secondary">Consultar cliente</span>
           </div>
-          <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">HU-01-01-03</span>
+          
         </div>
 
         <div className="px-8 py-7 max-w-6xl">

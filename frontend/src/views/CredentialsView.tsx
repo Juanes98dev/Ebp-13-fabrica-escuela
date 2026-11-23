@@ -156,7 +156,7 @@ export default function CredentialsView() {
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-success/10 text-emerald-400 border border-success/25"><IcoShield />Sesión protegida</span>
-            <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">HU-02-01-03</span>
+            
           </div>
         </div>
 
@@ -345,13 +345,6 @@ export default function CredentialsView() {
                 <p className="text-xs text-text-muted leading-relaxed">Nunca compartas tu contraseña. Banco X no la solicitará por correo, llamada o mensaje.</p>
               </div>
 
-              <div className="rounded-xl p-4 bg-purple-400/5 border border-border">
-                <div className="text-xs font-semibold text-purple-200 mb-2">Datos para probar el prototipo</div>
-                <div className="text-xs text-text-muted leading-relaxed">
-                  Contraseña actual: <span className="text-text-secondary">BancoX2026!</span><br />
-                  Usuario no disponible: <span className="text-text-secondary">carlos.herrera</span>
-                </div>
-              </div>
             </aside>
           </div>
         </div>

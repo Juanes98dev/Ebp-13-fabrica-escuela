@@ -18,8 +18,12 @@ public class Ebp13FabricaEscuelaApplication {
 	@Bean
 	CommandLineRunner seedUsers(ClienteRepository clientes) {
 		return args -> {
-			if (clientes.findByCedula("9999999999").isEmpty()) {
-				Cliente gestor = new Cliente();
+			var gestor = clientes.findByCedula("9999999999").orElseGet(Cliente::new);
+			String gestorPassword = System.getenv("GESTOR_PASSWORD");
+			if (gestorPassword == null || gestorPassword.isBlank()) {
+				gestorPassword = "gestor123";
+			}
+			if (gestor.getId() == null) {
 				gestor.setIdCliente("BX-GESTOR-001");
 				gestor.setCedula("9999999999");
 				gestor.setPrimerNombre("Gestor");
@@ -28,22 +32,11 @@ public class Ebp13FabricaEscuelaApplication {
 				gestor.setTelefono("3000000000");
 				gestor.setRol("GESTOR");
 				gestor.setActivo(true);
-				gestor.setPasswordHash(BCrypt.hashpw("GestorBX2026!", BCrypt.gensalt()));
-				clientes.save(gestor);
 			}
-			if (clientes.findByCedula("1023456789").isEmpty()) {
-				Cliente cliente = new Cliente();
-				cliente.setIdCliente("BX-M9K3A2-X7F");
-				cliente.setCedula("1023456789");
-				cliente.setPrimerNombre("Valentina");
-				cliente.setPrimerApellido("Morales");
-				cliente.setEmail("v.morales@email.com");
-				cliente.setTelefono("3100000000");
-				cliente.setRol("CLIENTE");
-				cliente.setActivo(true);
-				cliente.setPasswordHash(BCrypt.hashpw("BancoX2026!", BCrypt.gensalt()));
-				clientes.save(cliente);
-			}
+			gestor.setRol("GESTOR");
+			gestor.setActivo(true);
+			gestor.setPasswordHash(BCrypt.hashpw(gestorPassword, BCrypt.gensalt()));
+			clientes.save(gestor);
 		};
 	}
 

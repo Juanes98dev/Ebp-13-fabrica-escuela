@@ -495,34 +495,6 @@ export default function PasswordRecoveryView() {
                 </form>
 
                 <div className="mt-6 rounded-xl border border-border bg-sidebar p-4">
-                  <div className="flex items-start gap-2.5">
-                    <span className="mt-0.5 text-purple-300">
-                      <IcoInfo />
-                    </span>
-                    <div className="text-xs leading-relaxed text-text-muted">
-                      <span className="font-semibold text-purple-200">
-                        Datos para probar:
-                      </span>
-                      <br />
-                      Correo registrado:{" "}
-                      <button
-                        type="button"
-                        onClick={() => setEmail(REGISTERED_EMAIL)}
-                        className="font-medium text-text-secondary underline decoration-purple-400/30 underline-offset-2"
-                      >
-                        {REGISTERED_EMAIL}
-                      </button>
-                      <br />
-                      Correo no registrado:{" "}
-                      <button
-                        type="button"
-                        onClick={() => setEmail("desconocido@email.com")}
-                        className="font-medium text-text-secondary underline decoration-purple-400/30 underline-offset-2"
-                      >
-                        desconocido@email.com
-                      </button>
-                    </div>
-                  </div>
                   <div className="mt-3 border-t border-border pt-3">
                     <button
                       type="button"

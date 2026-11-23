@@ -118,7 +118,7 @@ export default function ManagerView() {
           <div className="flex items-center gap-2 text-sm" style={{ color: "#7c6fa0" }}>
             <span>Clientes</span><IcoChevron /><span style={{ color: "#c4b5fd" }}>Nuevo Cliente</span>
           </div>
-          <span className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "rgba(109,40,217,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.2)" }}>HU-01-01-01</span>
+          
         </div>
 
         <div className="px-8 py-6 max-w-5xl">

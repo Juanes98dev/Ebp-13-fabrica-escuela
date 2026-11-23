@@ -149,7 +149,7 @@ export default function SessionLogoutView() {
             </div>
 
             <div className="flex justify-end mb-6">
-              <span className="px-2.5 py-1 rounded-md text-xs bg-purple-600/15 text-purple-200 border border-border">HU-02-02-02</span>
+              
             </div>
 
             <div className={`flex items-start gap-4 rounded-2xl px-5 py-4 mb-6 ${expired ? "bg-warn/10 border border-warn/30" : "bg-success/10 border border-success/30"}`}>
@@ -256,7 +256,7 @@ export default function SessionLogoutView() {
               <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">Hola, Valentina</h1>
               <p className="text-sm text-text-muted">Administra tus productos financieros desde un entorno seguro.</p>
             </div>
-            <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">HU-02-02-02</span>
+            
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

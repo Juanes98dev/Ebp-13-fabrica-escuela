@@ -177,7 +177,7 @@ export default function TransferView() {
               <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#10b981" }} />
               Cliente Activo
             </div>
-            <span className="px-3 py-1.5 rounded-lg text-xs" style={{ background: "rgba(109,40,217,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.2)" }}>HU-03-01-01</span>
+            
           </div>
         </div>
 

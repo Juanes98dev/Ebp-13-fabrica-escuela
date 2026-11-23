@@ -786,13 +786,6 @@ export default function DeviceSessionView() {
                 ))}
               </div>
 
-              <div className="rounded-xl border border-border bg-purple-400/5 p-3 text-xs text-text-muted">
-                <span className="font-semibold text-purple-200">
-                  Dato para probar:
-                </span>{" "}
-                contraseña actual{" "}
-                <span className="text-text-secondary">BancoX2026!</span>
-              </div>
             </div>
 
             <div className="mt-6 flex gap-3">

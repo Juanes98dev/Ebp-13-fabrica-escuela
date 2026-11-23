@@ -286,9 +286,7 @@ export default function AccountDeactivationView() {
             <span className="hidden items-center gap-1.5 rounded-lg border border-success/20 bg-success/10 px-3 py-1.5 text-xs text-emerald-400 sm:flex">
               <IcoShield /> Rol: Gestor
             </span>
-            <span className="rounded-lg border border-border bg-purple-600/15 px-3 py-1.5 text-xs text-purple-200">
-              HU-02-01-02
-            </span>
+            
           </div>
         </header>
 

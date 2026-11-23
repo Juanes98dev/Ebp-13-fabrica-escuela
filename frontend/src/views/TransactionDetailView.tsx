@@ -185,7 +185,7 @@ export default function TransactionDetailView() {
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-success/10 text-emerald-400 border border-success/25"><IcoShield />Consulta segura</span>
-            <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">HU-04-01-03</span>
+            
           </div>
         </div>
 

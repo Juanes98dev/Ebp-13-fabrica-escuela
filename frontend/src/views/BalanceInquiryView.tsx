@@ -156,7 +156,7 @@ export default function BalanceInquiryView() {
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-success/10 text-emerald-400 border border-success/25"><IcoShield />Sesión verificada</span>
-            <span className="px-3 py-1.5 rounded-lg text-xs bg-purple-600/15 text-purple-200 border border-border">HU-04-01-01</span>
+            
           </div>
         </div>
 
@@ -306,17 +306,6 @@ export default function BalanceInquiryView() {
                 <p className="text-xs text-text-muted leading-relaxed mt-2">El saldo refleja todos los movimientos confirmados hasta el momento de la consulta.</p>
               </div>
 
-              <div className="rounded-xl p-4 bg-purple-400/5 border border-border">
-                <div className="flex items-start gap-2.5">
-                  <span className="text-purple-300 mt-0.5"><IcoInfo /></span>
-                  <div className="text-xs text-text-muted leading-relaxed">
-                    <span className="font-semibold text-purple-200">Datos para probar:</span><br />
-                    Cuenta propia: <span className="text-text-secondary">301-847-2291-05</span><br />
-                    Cuenta ajena: <span className="text-text-secondary">301-002-4419-88</span><br />
-                    No encontrada: <span className="text-text-secondary">999-999-9999-99</span>
-                  </div>
-                </div>
-              </div>
             </aside>
           </div>
         </div>
