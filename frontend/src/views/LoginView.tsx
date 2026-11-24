@@ -578,10 +578,10 @@ export default function LoginView() {
               </span>
               <div className="text-xs text-text-muted leading-relaxed">
                 <span className="font-semibold text-purple-200">
-                  Acceso exclusivo para gestores
+                  Acceso para gestores y clientes
                 </span>
                 <br />
-                Usa tu cédula y contraseña configuradas por el administrador.
+                Usa tu cédula y contraseña. Para clientes registrados, la contraseña inicial es la cédula.
               </div>
             </div>
             {(status === "locked" || attempts > 0) && (

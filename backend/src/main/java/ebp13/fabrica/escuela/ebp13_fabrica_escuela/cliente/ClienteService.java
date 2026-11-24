@@ -15,6 +15,7 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionActiva;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,6 +68,8 @@ public class ClienteService {
         cliente.setCiudad(request.getCiudad());
         cliente.setDepartamento(request.getDepartamento());
         cliente.setActivo(true);
+        cliente.setRol("CLIENTE");
+        cliente.setPasswordHash(BCrypt.hashpw(request.getCedula(), BCrypt.gensalt()));
 
         return toResponse(clienteRepository.save(cliente));
     }

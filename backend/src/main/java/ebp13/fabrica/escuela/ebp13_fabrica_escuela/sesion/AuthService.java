@@ -31,10 +31,6 @@ public class AuthService {
         if (!cliente.isActivo()) {
             throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "El usuario está inactivo");
         }
-        if (!"GESTOR".equalsIgnoreCase(cliente.getRol())) {
-            throw new Sprint3Exception(HttpStatus.FORBIDDEN,
-                    "Solo el perfil de gestor puede iniciar sesión");
-        }
         if (cliente.getPasswordHash() == null
                 || !BCrypt.checkpw(password == null ? "" : password, cliente.getPasswordHash())) {
             throw new Sprint3Exception(HttpStatus.UNAUTHORIZED, "Credenciales inválidas");

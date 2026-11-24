@@ -202,6 +202,7 @@ export default function ManagerView() {
                     <div className="text-xs mb-2 font-semibold uppercase tracking-wide" style={{ color: "#7c6fa0", fontFamily: "Instrument Sans,sans-serif" }}>Identificador Único Asignado</div>
                     <div className="text-lg font-bold tracking-wider" style={{ color: "#a78bfa", fontFamily: "Instrument Sans,sans-serif" }}>{clienteId}</div>
                     <div className="text-xs mt-1" style={{ color: "#7c6fa0" }}>{form.primerNombre} {form.primerApellido} · CC {form.cedula}</div>
+                    <div className="mt-3 text-xs" style={{ color: "#c4b5fd" }}>Contraseña inicial: la misma cédula del cliente.</div>
                   </div>
                   <div className="flex gap-3 w-full">
                     <button onClick={handleReset} className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Registrar Otro</button>

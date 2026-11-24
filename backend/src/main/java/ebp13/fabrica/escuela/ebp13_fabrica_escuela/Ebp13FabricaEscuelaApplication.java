@@ -37,6 +37,16 @@ public class Ebp13FabricaEscuelaApplication {
 			gestor.setActivo(true);
 			gestor.setPasswordHash(BCrypt.hashpw(gestorPassword, BCrypt.gensalt()));
 			clientes.save(gestor);
+
+			for (Cliente cliente : clientes.findAll()) {
+				if (!"GESTOR".equalsIgnoreCase(cliente.getRol())
+						&& cliente.getPasswordHash() == null
+						&& cliente.getCedula() != null) {
+					cliente.setRol("CLIENTE");
+					cliente.setPasswordHash(BCrypt.hashpw(cliente.getCedula(), BCrypt.gensalt()));
+					clientes.save(cliente);
+				}
+			}
 		};
 	}
 
