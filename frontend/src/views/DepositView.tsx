@@ -63,13 +63,13 @@ function buscarCuentaDeposito(num: string, cuentas: Cuenta[]): { nombre: string;
 export default function DepositView() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<DpStep>("form");
 
-  const [cuentaDestinoNum, setCuentaDestinoNum] = useState(cuentas[0].numero);
+  const [cuentaDestinoNum, setCuentaDestinoNum] = useState("");
   const [destinoManual, setDestinoManual] = useState(false);
-  const [destinoInput, setDestinoInput] = useState(cuentas[0].numero);
+  const [destinoInput, setDestinoInput] = useState("");
   const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("ok");
   const [canal, setCanal] = useState("efectivo");
   const [montoStr, setMontoStr] = useState("");
@@ -174,9 +174,9 @@ export default function DepositView() {
     setCanal("efectivo");
     setFieldErrors({});
     setDestinoManual(false);
-    setDestinoInput(cuentas[0].numero);
-    setCuentaDestinoNum(cuentas[0].numero);
-    setDestinoStatus("ok");
+    setDestinoInput(cuentas[0]?.numero ?? "");
+    setCuentaDestinoNum(cuentas[0]?.numero ?? "");
+    setDestinoStatus(cuentas.length > 0 ? "ok" : "idle");
     setStep("form");
   }
 
@@ -218,7 +218,7 @@ export default function DepositView() {
                         <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
                         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Cuenta destino</span>
                       </div>
-                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
+                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else if (cuentas[0]) { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
                         {destinoManual ? "← Mis cuentas" : "Otra cuenta"}
                       </button>
                     </div>

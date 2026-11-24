@@ -57,11 +57,11 @@ function Stepper({ step }: { step: WdStep }) {
 export default function WithdrawView() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<WdStep>("form");
 
-  const [cuentaNum, setCuentaNum] = useState(cuentas[0].numero);
+  const [cuentaNum, setCuentaNum] = useState("");
   const [montoStr, setMontoStr] = useState("");
   const [canal, setCanal] = useState("cajero");
   const [concepto, setConcepto] = useState("");
@@ -87,7 +87,8 @@ export default function WithdrawView() {
       .catch(() => undefined);
   }, []);
 
-  const cuenta = cuentas.find((c) => c.numero === cuentaNum)!;
+  const cuenta = cuentas.find((c) => c.numero === cuentaNum) ??
+    { numero: "", tipo: "Ahorros", saldo: 0 };
   const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
 
   function formatMonto(val: string) {
@@ -97,6 +98,10 @@ export default function WithdrawView() {
 
   function validate(): Record<string, string> {
     const e: Record<string, string> = {};
+    if (!cuenta) {
+      e.cuenta = "Debes tener una cuenta activa para realizar retiros.";
+      return e;
+    }
     if (!cuentaNum) e.cuenta = "Selecciona una cuenta.";
     if (!montoStr) e.monto = "Ingresa el monto a retirar.";
     else if (monto <= 0) e.monto = "El monto debe ser mayor a $0.";

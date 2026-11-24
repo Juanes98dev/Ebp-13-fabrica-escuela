@@ -61,11 +61,11 @@ function Stepper({ step }: { step: TxStep }) {
 export default function TransferView() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("transferencias");
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CLIENTE_ACTIVO.cuentas.map((c) => ({ ...c })));
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
   const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
   const [step, setStep] = useState<TxStep>("form");
 
-  const [cuentaOrigenNum, setCuentaOrigenNum] = useState(cuentas[0].numero);
+  const [cuentaOrigenNum, setCuentaOrigenNum] = useState("");
   const [cuentaDestinoNum, setCuentaDestinoNum] = useState("");
   const [montoStr, setMontoStr] = useState("");
   const [concepto, setConcepto] = useState("");
@@ -91,7 +91,8 @@ export default function TransferView() {
       .catch(() => undefined);
   }, []);
 
-  const cuentaOrigen = cuentas.find((c) => c.numero === cuentaOrigenNum)!;
+  const cuentaOrigen = cuentas.find((c) => c.numero === cuentaOrigenNum) ??
+    { numero: "", tipo: "Ahorros", saldo: 0 };
   const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
   const destinoInfo = CUENTAS_SISTEMA[cuentaDestinoNum];
 
@@ -113,6 +114,10 @@ export default function TransferView() {
 
   function validate(): Record<string, string> {
     const e: Record<string, string> = {};
+    if (!cuentaOrigen) {
+      e.origen = "Debes tener una cuenta activa para realizar transferencias.";
+      return e;
+    }
     if (!cuentaOrigenNum) e.origen = "Selecciona una cuenta origen.";
     if (!cuentaDestinoNum.trim()) e.destino = "Ingresa el número de cuenta destino.";
     else if (destinoStatus === "notfound") e.destino = "La cuenta destino no existe en el sistema.";
