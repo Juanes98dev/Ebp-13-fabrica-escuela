@@ -19,7 +19,6 @@ import {
   IcoTransfer,
   IcoUser,
 } from "../shared/icons";
-import { CLIENTE_ACTIVO } from "../shared/data";
 import { apiRequest } from "../shared/api";
 
 const CLIENT_NAV = [
@@ -36,6 +35,15 @@ const CLIENT_NAV = [
 type SessionState = "active" | "logged-out" | "expired";
 
 export default function SessionLogoutView() {
+  const loggedName = window.localStorage.getItem("bancox-name") || "Cliente"
+  const loggedInitials = loggedName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+  const loggedDocument = window.localStorage.getItem("bancox-user-id") || ""
   const [activeNav, setActiveNav] = useState("inicio");
   const [sessionState, setSessionState] = useState<SessionState>("active");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -224,9 +232,9 @@ export default function SessionLogoutView() {
         navItems={CLIENT_NAV}
         activeNav={activeNav}
         onNav={setActiveNav}
-        userLabel={CLIENTE_ACTIVO.nombre}
-        userSub={`CC ${CLIENTE_ACTIVO.cedula}`}
-        userInitials={CLIENTE_ACTIVO.iniciales}
+        userLabel={loggedName}
+        userSub={loggedDocument ? `Usuario ${loggedDocument}` : "Cliente"}
+        userInitials={loggedInitials}
         badge="Banca Personal"
       />
 
@@ -253,7 +261,7 @@ export default function SessionLogoutView() {
           <div className="flex items-start justify-between gap-6 mb-7">
             <div>
               <span className="text-xs font-semibold uppercase tracking-wider px-2 py-1 rounded-md mb-2 inline-block bg-purple-600/15 text-purple-300 font-display">Sesión protegida</span>
-              <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">Hola, Valentina</h1>
+              <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">Hola, {loggedName}</h1>
               <p className="text-sm text-text-muted">Administra tus productos financieros desde un entorno seguro.</p>
             </div>
             
@@ -289,20 +297,8 @@ export default function SessionLogoutView() {
                 </div>
                 <button type="button" className="text-xs font-semibold text-purple-300 hover:text-purple-200">Ver todas</button>
               </div>
-              <div className="divide-y divide-border">
-                {CLIENTE_ACTIVO.cuentas.map((account) => (
-                  <div key={account.numero} className="flex items-center gap-4 px-6 py-5">
-                    <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-purple-600/15 text-purple-300"><IcoCuentas /></div>
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold text-text-secondary">Cuenta {account.tipo.toLowerCase()}</div>
-                      <div className="text-xs text-text-muted mt-0.5">{account.numero}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-bold text-text-primary">$ {account.saldo.toLocaleString("es-CO")}</div>
-                      <div className="text-xs text-emerald-400 mt-0.5">Disponible</div>
-                    </div>
-                  </div>
-                ))}
+              <div className="px-6 py-8 text-center text-sm text-text-muted">
+                No hay cuentas cargadas para este usuario.
               </div>
             </section>
 

@@ -18,6 +18,7 @@ public class Ebp13FabricaEscuelaApplication {
 	@Bean
 	CommandLineRunner seedUsers(ClienteRepository clientes) {
 		return args -> {
+			clientes.deleteByCedula("1023456789");
 			var gestor = clientes.findByCedula("9999999999").orElseGet(Cliente::new);
 			String gestorPassword = System.getenv("GESTOR_PASSWORD");
 			if (gestorPassword == null || gestorPassword.isBlank()) {

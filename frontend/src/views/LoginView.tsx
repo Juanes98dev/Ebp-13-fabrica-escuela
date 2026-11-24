@@ -64,6 +64,7 @@ export default function LoginView() {
         usuarioId: number
         rol: string
         idiomaPreferido: string
+        nombre: string
       }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ cedula: username.trim(), password }),
@@ -71,6 +72,7 @@ export default function LoginView() {
       window.localStorage.setItem("bancox-session-token", result.sessionToken)
       window.localStorage.setItem("bancox-user-id", String(result.usuarioId))
       window.localStorage.setItem("bancox-role", result.rol)
+      window.localStorage.setItem("bancox-name", result.nombre)
       setStatus("idle")
       setAttempts(0)
       navigate(result.rol === "GESTOR" ? "/gestor/clientes" : "/inicio")
