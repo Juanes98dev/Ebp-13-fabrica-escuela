@@ -95,6 +95,8 @@ export default function SessionLogoutView() {
       window.localStorage.removeItem("bancox-session-token")
       window.localStorage.removeItem("bancox-user-id")
       window.localStorage.removeItem("bancox-role")
+      window.localStorage.removeItem("bancox-name")
+      window.localStorage.removeItem("bancox-cedula")
     }
     setShowLogoutConfirm(false);
     setSessionState("logged-out");

@@ -279,7 +279,7 @@ export default function TransactionHistoryView() {
                     {currentTransactions.map((transaction) => {
                       const incoming = transaction.type === "Ingreso";
                       return (
-                        <button type="button" key={transaction.id} onClick={() => navigate(`/cuentas/transaccion?id=${transaction.id}`)} className="w-full flex items-center gap-4 px-5 py-3.5 text-left hover:bg-purple-400/5 transition-colors">
+                        <div key={transaction.id} className="w-full flex items-center gap-4 px-5 py-3.5 text-left">
                           <div className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${incoming ? "bg-success/10 text-emerald-400" : "bg-purple-600/15 text-purple-300"}`}>
                             <span className={incoming ? "rotate-45" : "-rotate-[135deg]"}><IcoTransfer /></span>
                           </div>
@@ -294,7 +294,7 @@ export default function TransactionHistoryView() {
                           <div className={`w-28 text-right text-sm font-bold ${incoming ? "text-emerald-400" : "text-text-primary"}`}>
                             {incoming ? "+" : "−"} $ {transaction.amount.toLocaleString("es-CO")}
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>

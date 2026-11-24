@@ -101,6 +101,8 @@ export default function LoginView() {
       window.localStorage.removeItem("bancox-session-token")
       window.localStorage.removeItem("bancox-user-id")
       window.localStorage.removeItem("bancox-role")
+      window.localStorage.removeItem("bancox-name")
+      window.localStorage.removeItem("bancox-cedula")
     }
     setLoggedIn(false)
     setUsername("")
