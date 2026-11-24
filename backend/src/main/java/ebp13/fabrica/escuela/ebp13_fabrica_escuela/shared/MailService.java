@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import java.util.Optional;
 
@@ -26,8 +27,10 @@ public class MailService {
     }
 
     /**
-     * Envía una notificación sin propagar fallos: un SMTP caído no debe revertir la operación bancaria.
+     * Envía una notificación en segundo plano y sin propagar fallos: un SMTP lento o caído
+     * no debe demorar ni revertir la operación bancaria.
      */
+    @Async
     public void send(String to, String subject, String text) {
         if (to == null || to.isBlank()) {
             return;
