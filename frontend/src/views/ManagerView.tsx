@@ -81,6 +81,8 @@ export default function ManagerView() {
   const [cedulaStatus, setCedulaStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
   const [submitted, setSubmitted] = useState(false);
   const [clienteId, setClienteId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState("");
 
   function handleCedulaChange(val: string) {
     const limpia = val.replace(/\D/g, "").slice(0, 10);
@@ -117,9 +119,11 @@ export default function ManagerView() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setApiError("");
     const errs = validate();
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
+    setSaving(true);
     try {
       const cliente = await apiRequest<{ idCliente: string }>("/api/clientes", {
         method: "POST",
@@ -141,15 +145,19 @@ export default function ManagerView() {
       setClienteId(cliente.idCliente);
       setSubmitted(true);
     } catch (error) {
+      setApiError(error instanceof Error ? error.message : "No fue posible guardar el cliente");
       setErrors({
         cedula: error instanceof Error ? error.message : "No fue posible registrar el cliente",
       });
+    } finally {
+      setSaving(false);
     }
   }
 
   function handleReset() {
     setForm({ cedula: "", primerNombre: "", segundoNombre: "", primerApellido: "", segundoApellido: "", fechaNacimiento: "", genero: "", email: "", telefono: "", direccion: "", ciudad: "", departamento: "" });
     setErrors({});
+    setApiError("");
     setCedulaStatus("idle");
     setSubmitted(false);
     setClienteId("");
@@ -292,14 +300,24 @@ export default function ManagerView() {
                 </div>
               )}
 
+              {apiError && (
+                <div className="flex items-start gap-3 rounded-xl px-4 py-3.5" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                  <span style={{ color: "#f87171", flexShrink: 0, marginTop: "1px" }}><IcoAlert /></span>
+                  <div>
+                    <div className="text-sm font-semibold mb-0.5" style={{ color: "#f87171" }}>No se pudo guardar el cliente</div>
+                    <div className="text-xs" style={{ color: "#fca5a5" }}>{apiError}</div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between pt-1 pb-6">
                 <button type="button" onClick={handleReset} className="px-5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: "transparent", color: "#7c6fa0", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.color = "#c4b5fd"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.4)"; }} onMouseLeave={(e) => { e.currentTarget.style.color = "#7c6fa0"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.2)"; }}>
                   Limpiar Formulario
                 </button>
                 <div className="flex items-center gap-3">
                   <span className="text-xs" style={{ color: "#7c6fa0" }}>Los campos con <span style={{ color: "#a855f7" }}>*</span> son obligatorios</span>
-                  <button type="submit" className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 28px rgba(109,40,217,0.5)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "0 4px 20px rgba(109,40,217,0.35)"; }}>
-                    <IcoAdd />Registrar Cliente
+                  <button type="submit" disabled={saving} className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-60" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { if (!saving) e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>
+                    <IcoAdd />{saving ? "Guardando..." : "Registrar Cliente"}
                   </button>
                 </div>
               </div>
