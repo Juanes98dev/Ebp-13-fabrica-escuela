@@ -81,7 +81,7 @@ public class ClienteService {
 
     @Transactional(readOnly = true)
     public ClienteResponse buscar(String valor) {
-        String normalized = valor == null ? "" : valor.trim();
+        String normalized = valor == null ? "" : valor.trim().replaceAll("\\s+", "");
         Cliente cliente = clienteRepository.findByCedula(normalized)
                 .or(() -> clienteRepository.findAll().stream()
                         .filter(item -> normalized.equalsIgnoreCase(item.getIdCliente()))

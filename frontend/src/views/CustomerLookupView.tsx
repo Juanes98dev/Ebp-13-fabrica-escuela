@@ -63,8 +63,8 @@ export default function CustomerLookupView() {
 
   async function handleSearch(event: React.FormEvent) {
     event.preventDefault();
-    const value = query.trim();
-    if (!/^[A-Za-z0-9-]{6,20}$/.test(value)) {
+    const value = query.trim().replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9-]{6,30}$/.test(value)) {
       setError("Ingrese una cédula o identificador válido");
       setState("idle");
       return;
@@ -95,8 +95,9 @@ export default function CustomerLookupView() {
         cards: [],
       });
       setState("success");
-    } catch {
+    } catch (caught) {
       setSelectedCustomer(null);
+      setError(caught instanceof Error ? caught.message : "Cliente no encontrado");
       setState("not-found");
     }
   }
