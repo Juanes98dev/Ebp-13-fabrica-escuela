@@ -1,551 +1,399 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import Sidebar from "../shared/Sidebar";
-import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoChevron, IcoAlert, IcoInfo, IcoShield } from "../shared/icons";
-import { fmtCOP, fmtFecha, generarRef } from "../shared/helpers";
-import { CLIENTE_ACTIVO, CUENTAS_SISTEMA, HISTORIAL_INICIAL, CANALES_CONSIGNACION } from "../shared/data";
-import type { Cuenta, Transaccion } from "../shared/types";
-import { apiRequest } from "../shared/api";
+import { IcoChevron, IcoInfo, IcoShield } from "../shared/icons";
+import { ApiError, apiRequest, errorMessage } from "../shared/api";
+import {
+  etiquetaTipoCuenta,
+  fmtCOP,
+  fmtFecha,
+  formatMonto,
+  normalizarNumeroCuenta,
+  parseMonto,
+  PATRON_CUENTA,
+} from "../shared/helpers";
+import { CANALES_CONSIGNACION } from "../shared/data";
+import { useMisCuentas } from "../shared/hooks";
+import {
+  AlertaError,
+  AvisoOperacion,
+  CampoError,
+  claseBotonPrimario,
+  claseBotonSecundario,
+  claseInput,
+  FilasResumen,
+  IconoExito,
+  MontosRapidos,
+  PanelHistorialReciente,
+  PanelSaldos,
+  type PasoOperacion,
+  Seccion,
+  SelectorCuenta,
+  SinCuentas,
+  Stepper,
+} from "../shared/operaciones";
+import type { CuentaDestinoApi, TransaccionApi } from "../shared/types";
 
-const CLIENT_NAV = [
-  { id: "inicio", label: "Inicio", icon: <IcoDash /> },
-  { id: "cuentas", label: "Mis Cuentas", icon: <IcoCuentas /> },
-  { id: "transferencias", label: "Transferencias", icon: <IcoTransfer /> },
-  { id: "pagos", label: "Pagos", icon: <IcoPagos /> },
-  { id: "prestamos", label: "Préstamos", icon: <IcoPrestamos /> },
-  { id: "inversiones", label: "Inversiones", icon: <IcoInversiones /> },
-  { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
-];
+const MONTO_MINIMO = 1_000;
+const MONTO_MAXIMO = 50_000_000;
 
-type DpStep = "form" | "confirm" | "success";
-
-type ApiAccount = {
-  numeroCuenta: string;
-  tipo: "AHORROS" | "CORRIENTE";
-  saldo: number;
-  activa: boolean;
-};
-
-const STEPS = [
-  { key: "form", label: "Datos de la consignación", num: 1 },
-  { key: "confirm", label: "Confirmar operación", num: 2 },
-  { key: "success", label: "Consignación registrada", num: 3 },
-];
-
-function Stepper({ step }: { step: DpStep }) {
-  return (
-    <div className="flex items-center gap-0 mb-8">
-      {STEPS.map((s, i) => {
-        const done = (step === "confirm" && s.key === "form") || (step === "success" && s.key !== "success");
-        const active = step === s.key;
-        return (
-          <div key={s.key} className="flex items-center">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold" style={{ background: done ? "rgba(16,185,129,0.2)" : active ? "linear-gradient(135deg,#6d28d9,#a855f7)" : "rgba(139,92,246,0.1)", color: done ? "#10b981" : active ? "#fff" : "#7c6fa0", border: done ? "1px solid rgba(16,185,129,0.4)" : active ? "none" : "1px solid rgba(139,92,246,0.2)", fontFamily: "Instrument Sans,sans-serif" }}>
-                {done ? "✓" : s.num}
-              </div>
-              <span className="text-xs font-medium" style={{ color: active ? "#c4b5fd" : done ? "#10b981" : "#7c6fa0" }}>{s.label}</span>
-            </div>
-            {i < 2 && <div className="w-10 h-px mx-3" style={{ background: done ? "rgba(16,185,129,0.4)" : "rgba(139,92,246,0.15)" }} />}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function buscarCuentaDeposito(num: string, cuentas: Cuenta[]): { nombre: string; tipo: string; activa: boolean } | null {
-  const propia = cuentas.find((c) => c.numero === num);
-  if (propia) return { nombre: CLIENTE_ACTIVO.nombre, tipo: propia.tipo, activa: true };
-  return CUENTAS_SISTEMA[num] ?? null;
-}
+type EstadoDestino = "idle" | "checking" | "ok" | "inactive" | "notfound" | "error";
+type Errores = Partial<Record<"destino" | "monto", string>>;
 
 export default function DepositView() {
   const navigate = useNavigate();
-  const [activeNav, setActiveNav] = useState("cuentas");
-  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
-  const [historial, setHistorial] = useState<Transaccion[]>(HISTORIAL_INICIAL);
-  const [step, setStep] = useState<DpStep>("form");
+  const [searchParams] = useSearchParams();
+  const cuentaParam = searchParams.get("cuenta") ?? "";
+  const { cuentas: todas, loading, error: errorCuentas, reload } = useMisCuentas();
+  const cuentas = todas.filter((cuenta) => cuenta.activa);
 
-  const [cuentaDestinoNum, setCuentaDestinoNum] = useState("");
-  const [destinoManual, setDestinoManual] = useState(false);
+  const [step, setStep] = useState<PasoOperacion>("form");
+  const [manual, setManual] = useState(false);
+  const [propiaNum, setPropiaNum] = useState(cuentaParam);
   const [destinoInput, setDestinoInput] = useState("");
-  const [destinoStatus, setDestinoStatus] = useState<"idle" | "checking" | "ok" | "inactive" | "notfound">("ok");
-  const [canal, setCanal] = useState("efectivo");
+  const [destinoTercero, setDestinoTercero] = useState<CuentaDestinoApi | null>(null);
+  const [estadoDestino, setEstadoDestino] = useState<EstadoDestino>("idle");
+  const [canal, setCanal] = useState(CANALES_CONSIGNACION[0].id);
   const [montoStr, setMontoStr] = useState("");
   const [concepto, setConcepto] = useState("");
   const [remitente, setRemitente] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [referencia, setReferencia] = useState("");
+  const [errores, setErrores] = useState<Errores>({});
+  const [errorEnvio, setErrorEnvio] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [resultado, setResultado] = useState<TransaccionApi | null>(null);
 
   useEffect(() => {
-    const clienteId = window.localStorage.getItem("bancox-user-id");
-    if (!clienteId) return;
-    apiRequest<ApiAccount[]>(`/api/cuentas/cliente/${clienteId}`)
-      .then((accounts) => {
-        const loaded = accounts.filter((account) => account.activa).map((account) => ({
-          numero: account.numeroCuenta,
-          tipo: account.tipo === "AHORROS" ? "Ahorros" : "Corriente",
-          saldo: Number(account.saldo),
-        }));
-        if (loaded.length > 0) {
-          setCuentas(loaded);
-          setCuentaDestinoNum(loaded[0].numero);
-          setDestinoInput(loaded[0].numero);
-        }
-      })
-      .catch(() => undefined);
-  }, []);
+    if (cuentas.length > 0 && !cuentas.some((cuenta) => cuenta.numeroCuenta === propiaNum)) {
+      setPropiaNum(cuentas[0].numeroCuenta);
+    }
+  }, [cuentas, propiaNum]);
 
-  const monto = parseFloat(montoStr.replace(/\./g, "").replace(",", ".")) || 0;
-  const destinoInfo = buscarCuentaDeposito(cuentaDestinoNum, cuentas);
-  const cuentaPropia = cuentas.find((c) => c.numero === cuentaDestinoNum);
+  const propia = cuentas.find((cuenta) => cuenta.numeroCuenta === propiaNum);
+  const destinoNum = manual ? destinoInput.trim() : propiaNum;
+  const cuentaPropiaDestino = cuentas.find((cuenta) => cuenta.numeroCuenta === destinoNum);
+  const monto = parseMonto(montoStr);
+  const canalInfo = CANALES_CONSIGNACION.find((item) => item.id === canal) ?? CANALES_CONSIGNACION[0];
+  const titularDestino = manual ? destinoTercero?.titular ?? "—" : "Cuenta propia";
+  const tipoDestino = manual
+    ? destinoTercero ? etiquetaTipoCuenta(destinoTercero.tipo) : "—"
+    : propia ? etiquetaTipoCuenta(propia.tipo) : "—";
 
-  function formatMonto(val: string) {
-    const digits = val.replace(/\D/g, "");
-    return digits ? Number(digits).toLocaleString("es-CO") : "";
-  }
-
-  async function handleDestinoBlur() {
-    if (!destinoInput.trim()) return;
-    setCuentaDestinoNum(destinoInput.trim());
-    setDestinoStatus("checking");
+  async function validarDestino() {
+    const limpio = destinoInput.trim();
+    if (!limpio) return;
+    if (!PATRON_CUENTA.test(limpio)) {
+      setEstadoDestino("idle");
+      setErrores((prev) => ({ ...prev, destino: "Formato de cuenta inválido (ej: 301-123-4567-89)." }));
+      return;
+    }
+    setEstadoDestino("checking");
     try {
-      const info = await apiRequest<ApiAccount>(`/api/cuentas/${destinoInput.trim()}`);
-      setDestinoStatus(info.activa ? "ok" : "inactive");
-      if (info.activa) setCuentaDestinoNum(destinoInput.trim());
-    } catch {
-      setDestinoStatus("notfound");
+      const info = await apiRequest<CuentaDestinoApi>(`/api/cuentas/${encodeURIComponent(limpio)}/destino`);
+      setDestinoTercero(info);
+      setEstadoDestino(info.activa ? "ok" : "inactive");
+    } catch (err) {
+      setDestinoTercero(null);
+      setEstadoDestino(err instanceof ApiError && err.status === 404 ? "notfound" : "error");
     }
   }
 
-  function handleSelectPropia(num: string) {
-    setDestinoInput(num);
-    setCuentaDestinoNum(num);
-    setDestinoStatus("ok");
-    setDestinoManual(false);
-    setFieldErrors((e) => ({ ...e, destino: undefined as unknown as string }));
+  function alternarManual() {
+    setManual((prev) => !prev);
+    setDestinoInput("");
+    setDestinoTercero(null);
+    setEstadoDestino("idle");
+    setErrores((prev) => ({ ...prev, destino: undefined }));
   }
 
-  function validate(): Record<string, string> {
-    const e: Record<string, string> = {};
-    if (!cuentaDestinoNum.trim()) e.destino = "Ingresa o selecciona una cuenta destino.";
-    else if (destinoStatus === "notfound") e.destino = "La cuenta no existe en el sistema.";
-    else if (destinoStatus === "inactive") e.destino = "La cuenta está inactiva y no puede recibir consignaciones.";
-    else if (destinoStatus === "checking") e.destino = "Espera mientras se valida la cuenta.";
+  function validar(): Errores {
+    const e: Errores = {};
+    if (!destinoNum) e.destino = "Ingresa o selecciona una cuenta destino.";
+    else if (manual && estadoDestino === "notfound") e.destino = "La cuenta no existe en el sistema.";
+    else if (manual && estadoDestino === "inactive") e.destino = "La cuenta está inactiva y no puede recibir consignaciones.";
+    else if (manual && estadoDestino !== "ok") e.destino = "Valida la cuenta destino antes de continuar.";
     if (!montoStr) e.monto = "Ingresa el monto a consignar.";
-    else if (monto <= 0) e.monto = "El monto debe ser mayor a $0.";
-    else if (monto < 1_000) e.monto = "El monto mínimo de consignación es $1.000.";
-    else if (monto > 50_000_000) e.monto = "El monto máximo por consignación es $50.000.000.";
+    else if (monto < MONTO_MINIMO) e.monto = `El monto mínimo de consignación es ${fmtCOP(MONTO_MINIMO)}.`;
+    else if (monto > MONTO_MAXIMO) e.monto = `El monto máximo por consignación es ${fmtCOP(MONTO_MAXIMO)}.`;
     return e;
   }
 
-  function handleContinue() {
-    const errs = validate();
-    setFieldErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-    setReferencia(generarRef());
+  function continuar() {
+    const e = validar();
+    setErrores(e);
+    setErrorEnvio("");
+    if (Object.values(e).some(Boolean)) return;
     setStep("confirm");
   }
 
-  async function handleConfirm() {
+  async function confirmar() {
+    setEnviando(true);
+    setErrorEnvio("");
+    const descripcion = concepto.trim() ? `${concepto.trim()} · ${canalInfo.label}` : `Consignación · ${canalInfo.label}`;
     try {
-      const tx = await apiRequest<{ referencia: string }>("/api/transacciones/consignacion", {
+      const tx = await apiRequest<TransaccionApi>("/api/transacciones/consignacion", {
         method: "POST",
         body: JSON.stringify({
-          cuentaDestino: cuentaDestinoNum,
+          cuentaDestino: destinoNum,
           monto,
-          remitente,
+          remitente: remitente.trim() || null,
+          concepto: descripcion,
         }),
       });
-      setReferencia(tx.referencia);
-      setCuentas((prev) => prev.map((c) => c.numero === cuentaDestinoNum ? { ...c, saldo: c.saldo + monto } : c));
+      setResultado(tx);
+      await reload();
       setStep("success");
-    } catch (error) {
-      setFieldErrors({ monto: error instanceof Error ? error.message : "No fue posible realizar la consignación" });
-      setStep("form");
+    } catch (err) {
+      setErrorEnvio(errorMessage(err, "No fue posible realizar la consignación"));
+    } finally {
+      setEnviando(false);
     }
   }
 
-  function handleReset() {
+  function nuevaConsignacion() {
     setMontoStr("");
     setConcepto("");
     setRemitente("");
-    setCanal("efectivo");
-    setFieldErrors({});
-    setDestinoManual(false);
-    setDestinoInput(cuentas[0]?.numero ?? "");
-    setCuentaDestinoNum(cuentas[0]?.numero ?? "");
-    setDestinoStatus(cuentas.length > 0 ? "ok" : "idle");
+    setCanal(CANALES_CONSIGNACION[0].id);
+    setManual(false);
+    setDestinoInput("");
+    setDestinoTercero(null);
+    setEstadoDestino("idle");
+    setErrores({});
+    setErrorEnvio("");
+    setResultado(null);
     setStep("form");
   }
 
+  const bordeDestino = errores.destino || estadoDestino === "inactive" || estadoDestino === "notfound" || estadoDestino === "error"
+    ? "border-danger"
+    : estadoDestino === "ok"
+      ? "border-success"
+      : "border-border focus:border-purple-400/60";
+
   return (
-    <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
+    <div className="flex h-full overflow-hidden bg-bg-base">
+      <Sidebar variant="cliente" />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
-          <div className="flex items-center gap-2 text-sm" style={{ color: "#7c6fa0" }}>
-            <span>Mis Cuentas</span><IcoChevron /><span style={{ color: "#c4b5fd" }}>Consignar Dinero</span>
+        <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10 bg-bg-base/95 border-b border-border backdrop-blur">
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <span>Mis Cuentas</span><IcoChevron /><span className="text-text-secondary">Consignar dinero</span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs" style={{ background: "rgba(16,185,129,0.1)", color: "#34d399", border: "1px solid rgba(16,185,129,0.25)" }}>
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#10b981" }} />
-              Cliente Activo
-            </div>
-            
-          </div>
+          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-success/10 text-emerald-400 border border-success/25"><IcoShield />Operación segura</span>
         </div>
 
-        <div className="px-8 py-6" style={{ maxWidth: "960px" }}>
+        <div className="px-8 py-6 max-w-[960px]">
           <div className="mb-7">
-            <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded mb-2 inline-block" style={{ background: "rgba(16,185,129,0.12)", color: "#34d399", fontFamily: "Instrument Sans,sans-serif" }}>Consignaciones</span>
-            <h1 className="text-2xl font-bold mb-1" style={{ color: "#f1eeff", fontFamily: "Instrument Sans,sans-serif", letterSpacing: "-0.3px" }}>Consignar dinero</h1>
-            <p className="text-sm" style={{ color: "#7c6fa0" }}>Ingresa fondos a tu cuenta propia o indica la cuenta de destino para aumentar el saldo disponible.</p>
+            <span className="text-xs font-semibold uppercase tracking-wider px-2 py-0.5 rounded mb-2 inline-block bg-success/10 text-emerald-400 font-display">Consignaciones</span>
+            <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">Consignar dinero</h1>
+            <p className="text-sm text-text-muted">Ingresa fondos a tu cuenta o a la cuenta de un tercero para aumentar su saldo disponible.</p>
           </div>
 
-          <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 320px" }}>
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
             <div>
-              <Stepper step={step} />
+              <Stepper step={step} labels={["Datos de la consignación", "Confirmar operación", "Consignación registrada"]} />
 
               {step === "form" && (
                 <div className="flex flex-col gap-5">
-                  {/* Cuenta destino */}
-                  <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
-                        <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Cuenta destino</span>
-                      </div>
-                      <button onClick={() => { setDestinoManual(!destinoManual); if (!destinoManual) { setDestinoInput(""); setCuentaDestinoNum(""); setDestinoStatus("idle"); } else if (cuentas[0]) { handleSelectPropia(cuentas[0].numero); } }} className="text-xs px-3 py-1 rounded-lg transition-all" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.2)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; }}>
-                        {destinoManual ? "← Mis cuentas" : "Otra cuenta"}
+                  <Seccion
+                    titulo="Cuenta destino"
+                    accion={
+                      <button type="button" onClick={alternarManual} className="text-xs px-3 py-1 rounded-lg bg-purple-400/10 text-purple-300 border border-border hover:bg-purple-400/20">
+                        {manual ? "← Mis cuentas" : "Otra cuenta"}
                       </button>
-                    </div>
+                    }
+                  >
+                    {!manual && (cuentas.length === 0 ? (
+                      <SinCuentas loading={loading} error={errorCuentas} />
+                    ) : (
+                      <SelectorCuenta
+                        cuentas={cuentas}
+                        seleccionada={propiaNum}
+                        onSelect={(numero) => { setPropiaNum(numero); setErrores((prev) => ({ ...prev, destino: undefined })); }}
+                        extra={(cuenta) => cuenta.numeroCuenta === propiaNum && monto > 0
+                          ? <div className="text-xs mt-0.5 text-emerald-500">+{fmtCOP(monto)} → {fmtCOP(Number(cuenta.saldo) + monto)}</div>
+                          : null}
+                      />
+                    ))}
 
-                    {!destinoManual && (
-                      <div className="flex flex-col gap-2">
-                        {cuentas.map((c) => {
-                          const sel = cuentaDestinoNum === c.numero;
-                          return (
-                            <button key={c.numero} onClick={() => handleSelectPropia(c.numero)} className="flex items-center justify-between px-4 py-3.5 rounded-xl transition-all text-left" style={{ background: sel ? "rgba(16,185,129,0.12)" : "rgba(139,92,246,0.05)", border: `2px solid ${sel ? "rgba(16,185,129,0.4)" : "rgba(139,92,246,0.12)"}`, boxShadow: sel ? "0 0 0 3px rgba(16,185,129,0.07)" : "none" }}>
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center justify-center w-9 h-9 rounded-lg" style={{ background: sel ? "rgba(16,185,129,0.18)" : "rgba(139,92,246,0.1)" }}>
-                                  <span style={{ color: sel ? "#10b981" : "#7c6fa0" }}><IcoCuentas /></span>
-                                </div>
-                                <div>
-                                  <div className="text-xs font-semibold" style={{ color: sel ? "#f1eeff" : "#c4b5fd" }}>{c.tipo}</div>
-                                  <div className="text-xs font-mono" style={{ color: "#7c6fa0" }}>{c.numero}</div>
-                                  <div className="flex items-center gap-1 mt-0.5">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#10b981" }} />
-                                    <span className="text-xs" style={{ color: "#34d399" }}>Activa</span>
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-xs mb-0.5" style={{ color: "#7c6fa0" }}>Saldo actual</div>
-                                <div className="text-sm font-bold" style={{ color: sel ? "#34d399" : "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{fmtCOP(c.saldo)}</div>
-                                {sel && monto > 0 && (
-                                  <div className="text-xs mt-0.5" style={{ color: "#10b981" }}>+{fmtCOP(monto)} → {fmtCOP(c.saldo + monto)}</div>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
-                        {fieldErrors.destino && <p className="flex items-center gap-1 text-xs mt-1" style={{ color: "#f87171" }}><IcoAlert />{fieldErrors.destino}</p>}
-                      </div>
-                    )}
-
-                    {destinoManual && (
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Número de cuenta <span style={{ color: "#a855f7" }}>*</span></label>
+                    {manual && (
+                      <>
+                        <label htmlFor="destino" className="block text-xs font-semibold uppercase tracking-wide mb-1 text-text-secondary font-display">Número de cuenta <span className="text-accent">*</span></label>
                         <div className="relative">
-                          <input type="text" value={destinoInput} onChange={(ev) => { setDestinoInput(ev.target.value); setDestinoStatus("idle"); setFieldErrors((e) => ({ ...e, destino: undefined as unknown as string })); }} onBlur={handleDestinoBlur} placeholder="Ej: 301-002-4419-88" className="w-full px-3.5 py-2.5 pr-10 rounded-lg text-sm outline-none transition-all font-mono" style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${fieldErrors.destino ? "#ef4444" : destinoStatus === "ok" ? "#10b981" : destinoStatus === "inactive" || destinoStatus === "notfound" ? "#ef4444" : "rgba(139,92,246,0.22)"}`, color: "#f1eeff" }} onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }} onBlurCapture={(ev) => { ev.currentTarget.style.boxShadow = "none"; }} />
-                          {destinoStatus === "checking" && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "rgba(168,139,250,0.5)", borderTopColor: "transparent" }} />}
-                          {destinoStatus === "ok" && <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold" style={{ color: "#10b981" }}>✓</span>}
-                          {(destinoStatus === "notfound" || destinoStatus === "inactive") && <span className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "#ef4444" }}>✕</span>}
+                          <input
+                            id="destino"
+                            type="text"
+                            inputMode="numeric"
+                            value={destinoInput}
+                            onChange={(ev) => {
+                              setDestinoInput(normalizarNumeroCuenta(ev.target.value));
+                              setDestinoTercero(null);
+                              setEstadoDestino("idle");
+                              setErrores((prev) => ({ ...prev, destino: undefined }));
+                            }}
+                            onBlur={() => void validarDestino()}
+                            placeholder="Ej: 301-123-4567-89"
+                            className={`${claseInput} pr-10 font-mono ${bordeDestino}`}
+                            data-i18n-ignore
+                          />
+                          {estadoDestino === "checking" && <span className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-purple-300/50 border-t-transparent animate-spin" />}
+                          {estadoDestino === "ok" && <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-emerald-500">✓</span>}
                         </div>
-                        {destinoStatus === "ok" && destinoInfo && (
-                          <div className="flex items-center gap-2 mt-1 px-3 py-2 rounded-lg" style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}>
-                            <span style={{ color: "#10b981" }}><IcoShield /></span>
-                            <span className="text-xs font-semibold" style={{ color: "#34d399" }}>{destinoInfo.nombre}</span>
-                            <span className="text-xs" style={{ color: "#7c6fa0" }}>· Cuenta {destinoInfo.tipo} · Activa</span>
+                        {estadoDestino === "ok" && destinoTercero && (
+                          <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg bg-success/10 border border-success/20">
+                            <span className="text-emerald-500"><IcoShield /></span>
+                            <span className="text-xs font-semibold text-emerald-400">{destinoTercero.titular}</span>
+                            <span className="text-xs text-text-muted">· {etiquetaTipoCuenta(destinoTercero.tipo)} · Activa</span>
                           </div>
                         )}
-                        {destinoStatus === "notfound" && <p className="flex items-center gap-1 text-xs mt-1" style={{ color: "#f87171" }}><IcoAlert />La cuenta ingresada no existe en el sistema.</p>}
-                        {destinoStatus === "inactive" && (
-                          <div className="flex items-center gap-2 mt-1 px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                            <span style={{ color: "#f87171" }}><IcoAlert /></span>
-                            <span className="text-xs" style={{ color: "#f87171" }}>Esta cuenta está inactiva y no puede recibir consignaciones.</span>
-                          </div>
-                        )}
-                        {fieldErrors.destino && destinoStatus === "idle" && <p className="flex items-center gap-1 text-xs mt-1" style={{ color: "#f87171" }}><IcoAlert />{fieldErrors.destino}</p>}
-                        <p className="text-xs" style={{ color: "#7c6fa0" }}>Ingresa el número y presiona Tab para validar.</p>
-                      </div>
+                        {estadoDestino === "notfound" && <CampoError mensaje="La cuenta ingresada no existe en el sistema." />}
+                        {estadoDestino === "inactive" && <CampoError mensaje="Esta cuenta está inactiva y no puede recibir consignaciones." />}
+                        {estadoDestino === "error" && <CampoError mensaje="No fue posible validar la cuenta. Intenta de nuevo." />}
+                        <p className="text-xs mt-1.5 text-text-muted">La cuenta se valida al salir del campo.</p>
+                      </>
                     )}
-                  </div>
+                    {(!manual || estadoDestino === "idle" || estadoDestino === "ok") && <CampoError mensaje={errores.destino} />}
+                  </Seccion>
 
-                  {/* Canal de consignación */}
-                  <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
-                      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Canal de consignación</span>
-                    </div>
-                    <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                      {CANALES_CONSIGNACION.map((ch) => {
-                        const sel = canal === ch.id;
+                  <Seccion titulo="Canal de consignación">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {CANALES_CONSIGNACION.map((item) => {
+                        const sel = canal === item.id;
                         return (
-                          <button key={ch.id} onClick={() => setCanal(ch.id)} className="flex items-start gap-3 px-4 py-3.5 rounded-xl transition-all text-left" style={{ background: sel ? "rgba(109,40,217,0.22)" : "rgba(139,92,246,0.05)", border: `2px solid ${sel ? "rgba(139,92,246,0.5)" : "rgba(139,92,246,0.12)"}`, boxShadow: sel ? "0 0 0 3px rgba(109,40,217,0.1)" : "none" }} onMouseEnter={(e) => { if (!sel) { e.currentTarget.style.background = "rgba(139,92,246,0.1)"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.25)"; } }} onMouseLeave={(e) => { if (!sel) { e.currentTarget.style.background = "rgba(139,92,246,0.05)"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.12)"; } }}>
-                            <span className="text-xl shrink-0 mt-0.5">{ch.icon}</span>
-                            <div>
-                              <div className="text-xs font-semibold mb-0.5" style={{ color: sel ? "#f1eeff" : "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{ch.label}</div>
-                              <div className="text-xs leading-relaxed" style={{ color: "#7c6fa0" }}>{ch.desc}</div>
-                            </div>
-                            {sel && (
-                              <div className="ml-auto shrink-0 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)" }}>
-                                <span className="text-white text-xs">✓</span>
-                              </div>
-                            )}
+                          <button key={item.id} type="button" onClick={() => setCanal(item.id)} className={`flex items-start gap-3 px-4 py-3.5 rounded-xl text-left border-2 transition-all ${sel ? "bg-purple-600/20 border-purple-400/50" : "bg-purple-400/5 border-border hover:border-purple-400/25"}`}>
+                            <span className="text-xl shrink-0 mt-0.5" aria-hidden>{item.icon}</span>
+                            <span>
+                              <span className={`block text-xs font-semibold mb-0.5 font-display ${sel ? "text-text-primary" : "text-text-secondary"}`}>{item.label}</span>
+                              <span className="block text-xs leading-relaxed text-text-muted">{item.desc}</span>
+                            </span>
                           </button>
                         );
                       })}
                     </div>
-                  </div>
+                  </Seccion>
 
-                  {/* Monto, remitente y concepto */}
-                  <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-1 h-4 rounded-full" style={{ background: "linear-gradient(180deg,#6d28d9,#a855f7)" }} />
-                      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Monto y detalle</span>
+                  <Seccion titulo="Monto y detalle">
+                    <div className="flex items-center justify-between px-4 py-2.5 mb-3 rounded-lg bg-success/5 border border-success/15">
+                      <span className="flex items-center gap-1.5 text-xs text-text-muted"><IcoInfo />Límites de consignación</span>
+                      <span className="flex items-center gap-4 text-xs text-emerald-400">
+                        <span>Mín: <strong>{fmtCOP(MONTO_MINIMO)}</strong></span>
+                        <span>Máx: <strong>{fmtCOP(MONTO_MAXIMO)}</strong></span>
+                      </span>
                     </div>
-                    <div className="flex flex-col gap-4">
-                      <div className="flex items-center justify-between px-4 py-2.5 rounded-lg" style={{ background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)" }}>
-                        <div className="flex items-center gap-1.5 text-xs" style={{ color: "#7c6fa0" }}><IcoInfo /><span>Límites de consignación</span></div>
-                        <div className="flex items-center gap-4 text-xs" style={{ color: "#34d399" }}>
-                          <span>Mín: <strong>$1.000</strong></span>
-                          <span>Máx: <strong>$50.000.000</strong></span>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Monto a consignar (COP) <span style={{ color: "#a855f7" }}>*</span></label>
-                        <div className="relative">
-                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: "#7c6fa0" }}>$</span>
-                          <input type="text" inputMode="numeric" value={montoStr} onChange={(ev) => { setMontoStr(formatMonto(ev.target.value)); setFieldErrors((e) => ({ ...e, monto: undefined as unknown as string })); }} placeholder="0" className="w-full pl-7 pr-3.5 py-3 rounded-lg text-xl font-bold outline-none transition-all" style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${fieldErrors.monto ? "#ef4444" : "rgba(139,92,246,0.22)"}`, color: "#f1eeff", fontFamily: "Instrument Sans,sans-serif" }} onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }} onBlur={(ev) => { ev.currentTarget.style.boxShadow = "none"; }} />
-                        </div>
-                        {fieldErrors.monto && (
-                          <div className="flex items-center gap-2 mt-1 px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                            <span style={{ color: "#f87171", flexShrink: 0 }}><IcoAlert /></span>
-                            <span className="text-xs" style={{ color: "#f87171" }}>{fieldErrors.monto}</span>
-                          </div>
-                        )}
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                          {[200_000, 500_000, 1_000_000, 2_000_000, 5_000_000].map((v) => (
-                            <button key={v} onClick={() => { setMontoStr(v.toLocaleString("es-CO")); setFieldErrors((e) => ({ ...e, monto: undefined as unknown as string })); }} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: "rgba(139,92,246,0.08)", color: "#7c6fa0", border: "1px solid rgba(139,92,246,0.15)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.18)"; e.currentTarget.style.color = "#c4b5fd"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.08)"; e.currentTarget.style.color = "#7c6fa0"; }}>
-                              {fmtCOP(v)}
-                            </button>
-                          ))}
-                        </div>
-                        {monto > 0 && cuentaPropia && (
-                          <div className="flex items-center justify-between mt-2 px-3 py-2.5 rounded-lg" style={{ background: "rgba(16,185,129,0.07)", border: "1px solid rgba(16,185,129,0.18)" }}>
-                            <span className="text-xs" style={{ color: "#7c6fa0" }}>Saldo proyectado tras consignación</span>
-                            <span className="text-sm font-bold" style={{ color: "#34d399", fontFamily: "Instrument Sans,sans-serif" }}>{fmtCOP(cuentaPropia.saldo + monto)}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Nombre del remitente (opcional)</label>
-                        <input type="text" value={remitente} onChange={(ev) => setRemitente(ev.target.value)} placeholder="Ej: Juan Pérez, Empresa ABC..." maxLength={60} className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-all" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.22)", color: "#f1eeff" }} onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }} onBlur={(ev) => { ev.currentTarget.style.boxShadow = "none"; }} />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Concepto (opcional)</label>
-                        <input type="text" value={concepto} onChange={(ev) => setConcepto(ev.target.value)} placeholder="Ej: Pago de nómina, ahorro mensual..." maxLength={80} className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none transition-all" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.22)", color: "#f1eeff" }} onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }} onBlur={(ev) => { ev.currentTarget.style.boxShadow = "none"; }} />
-                        <p className="text-xs text-right" style={{ color: "#7c6fa0" }}>{concepto.length}/80</p>
-                      </div>
+                    <label htmlFor="monto" className="block text-xs font-semibold uppercase tracking-wide mb-1 text-text-secondary font-display">Monto a consignar (COP) <span className="text-accent">*</span></label>
+                    <div className="relative">
+                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-text-muted">$</span>
+                      <input
+                        id="monto"
+                        type="text"
+                        inputMode="numeric"
+                        value={montoStr}
+                        onChange={(ev) => { setMontoStr(formatMonto(ev.target.value)); setErrores((prev) => ({ ...prev, monto: undefined })); }}
+                        placeholder="0"
+                        className={`${claseInput} pl-7 py-3 text-xl font-bold font-display ${errores.monto ? "border-danger" : "border-border focus:border-purple-400/60"}`}
+                      />
                     </div>
-                  </div>
-
-                  {Object.keys(fieldErrors).length > 0 && (
-                    <div className="flex items-start gap-3 rounded-xl px-4 py-3.5" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
-                      <span style={{ color: "#f87171", flexShrink: 0, marginTop: 1 }}><IcoAlert /></span>
-                      <div>
-                        <div className="text-sm font-semibold mb-0.5" style={{ color: "#f87171" }}>Corrija los errores antes de continuar</div>
-                        <div className="text-xs" style={{ color: "#fca5a5" }}>Se encontraron {Object.keys(fieldErrors).length} {Object.keys(fieldErrors).length === 1 ? "error" : "errores"}. Revisa los campos marcados.</div>
+                    <CampoError mensaje={errores.monto} />
+                    <MontosRapidos valores={[200_000, 500_000, 1_000_000, 2_000_000, 5_000_000]} onPick={(valor) => { setMontoStr(valor.toLocaleString("es-CO")); setErrores((prev) => ({ ...prev, monto: undefined })); }} />
+                    {monto > 0 && cuentaPropiaDestino && (
+                      <div className="flex items-center justify-between mt-3 px-3 py-2.5 rounded-lg bg-success/5 border border-success/20">
+                        <span className="text-xs text-text-muted">Saldo proyectado tras la consignación</span>
+                        <span className="text-sm font-bold text-emerald-400 font-display">{fmtCOP(Number(cuentaPropiaDestino.saldo) + monto)}</span>
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                    <label htmlFor="remitente" className="block text-xs font-semibold uppercase tracking-wide mt-4 mb-1 text-text-secondary font-display">Nombre del remitente (opcional)</label>
+                    <input id="remitente" type="text" value={remitente} onChange={(ev) => setRemitente(ev.target.value)} placeholder="Si lo dejas vacío se usa tu nombre" maxLength={60} className={`${claseInput} border-border focus:border-purple-400/60`} />
+
+                    <label htmlFor="concepto" className="block text-xs font-semibold uppercase tracking-wide mt-4 mb-1 text-text-secondary font-display">Concepto (opcional)</label>
+                    <input id="concepto" type="text" value={concepto} onChange={(ev) => setConcepto(ev.target.value)} placeholder="Ej: Pago de nómina, ahorro mensual..." maxLength={80} className={`${claseInput} border-border focus:border-purple-400/60`} />
+                    <p className="text-xs text-right mt-1 text-text-muted">{concepto.length}/80</p>
+                  </Seccion>
 
                   <div className="flex justify-end pb-2">
-                    <button onClick={handleContinue} className="flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>
-                      Continuar <IcoChevron />
-                    </button>
+                    <button type="button" onClick={continuar} disabled={estadoDestino === "checking"} className={claseBotonPrimario}>Continuar <IcoChevron /></button>
                   </div>
                 </div>
               )}
 
               {step === "confirm" && (
                 <div className="flex flex-col gap-5">
-                  <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid rgba(139,92,246,0.2)" }}>
-                    <div className="px-6 py-5 flex items-center gap-4" style={{ background: "linear-gradient(135deg,rgba(16,185,129,0.15),rgba(109,40,217,0.15))", borderBottom: "1px solid rgba(139,92,246,0.15)" }}>
-                      <div className="flex items-center justify-center w-12 h-12 rounded-xl text-2xl" style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.25)" }}>
-                        {CANALES_CONSIGNACION.find((c) => c.id === canal)?.icon}
-                      </div>
+                  <div className="rounded-2xl overflow-hidden border border-purple-400/20">
+                    <div className="px-6 py-5 flex items-center gap-4 bg-gradient-to-br from-success/15 to-purple-600/15 border-b border-border">
+                      <div className="flex items-center justify-center w-12 h-12 rounded-xl text-2xl bg-success/15 border border-success/25" aria-hidden>{canalInfo.icon}</div>
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-wider mb-0.5" style={{ color: "#34d399", fontFamily: "Instrument Sans,sans-serif" }}>Resumen de la consignación</div>
-                        <div className="text-2xl font-bold" style={{ color: "#f1eeff", fontFamily: "Instrument Sans,sans-serif" }}>{fmtCOP(monto)}</div>
-                        <div className="text-xs mt-0.5" style={{ color: "#7c6fa0" }}>{CANALES_CONSIGNACION.find((c) => c.id === canal)?.label}</div>
+                        <div className="text-xs font-semibold uppercase tracking-wider mb-0.5 text-emerald-400 font-display">Resumen de la consignación</div>
+                        <div className="text-2xl font-bold text-text-primary font-display">{fmtCOP(monto)}</div>
+                        <div className="text-xs mt-0.5 text-text-muted">{canalInfo.label}</div>
                       </div>
                     </div>
-                    <div className="px-6 py-5 flex flex-col gap-3" style={{ background: "#130d24" }}>
-                      {([
-                        { label: "Cuenta destino", value: cuentaDestinoNum },
-                        { label: "Titular", value: destinoInfo?.nombre ?? "—" },
-                        { label: "Tipo de cuenta", value: destinoInfo?.tipo ?? "—" },
-                        { label: "Estado de la cuenta", value: "Activa", green: true },
-                        { label: "Monto a consignar", value: fmtCOP(monto), highlight: true },
-                        ...(cuentaPropia ? [{ label: "Saldo proyectado", value: fmtCOP(cuentaPropia.saldo + monto), green: true }] : []),
-                        { label: "Canal", value: CANALES_CONSIGNACION.find((c) => c.id === canal)?.label ?? canal },
-                        { label: "Remitente", value: remitente || "No especificado", muted: !remitente },
-                        { label: "Concepto", value: concepto || "No especificado", muted: !concepto },
-                        { label: "Referencia", value: referencia },
-                        { label: "Fecha y hora", value: new Date().toLocaleString("es-CO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) },
-                      ] as { label: string; value: string; green?: boolean; highlight?: boolean; muted?: boolean }[]).map((r) => (
-                        <div key={r.label} className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid rgba(139,92,246,0.07)" }}>
-                          <span className="text-xs" style={{ color: "#7c6fa0" }}>{r.label}</span>
-                          <span className="text-sm font-medium" style={{ color: r.green ? "#34d399" : r.highlight ? "#c4b5fd" : r.muted ? "#7c6fa0" : "#f1eeff" }}>{r.value}</span>
-                        </div>
-                      ))}
+                    <div className="px-6 py-4 bg-sidebar">
+                      <FilasResumen
+                        filas={[
+                          { label: "Cuenta destino", value: destinoNum },
+                          { label: "Titular", value: titularDestino },
+                          { label: "Tipo de cuenta", value: tipoDestino },
+                          { label: "Monto a consignar", value: fmtCOP(monto), tono: "destacado" },
+                          ...(cuentaPropiaDestino ? [{ label: "Saldo proyectado", value: fmtCOP(Number(cuentaPropiaDestino.saldo) + monto), tono: "ok" as const }] : []),
+                          { label: "Canal", value: canalInfo.label },
+                          { label: "Remitente", value: remitente || "Titular de la sesión", tono: remitente ? undefined : "tenue" },
+                          { label: "Concepto", value: concepto || "No especificado", tono: concepto ? undefined : "tenue" },
+                        ]}
+                      />
                     </div>
-                    <div className="px-6 py-3.5" style={{ background: "rgba(139,92,246,0.04)", borderTop: "1px solid rgba(139,92,246,0.1)" }}>
-                      <div className="flex items-start gap-2 text-xs" style={{ color: "#7c6fa0", lineHeight: "1.6" }}>
-                        <span style={{ color: "#a78bfa", flexShrink: 0, marginTop: 1 }}><IcoInfo /></span>
-                        Al confirmar, el saldo de la cuenta destino se actualizará de forma inmediata.
-                      </div>
+                    <div className="px-6 py-3.5 bg-purple-400/5 border-t border-border">
+                      <AvisoOperacion>Al confirmar, el saldo de la cuenta destino se actualizará de forma inmediata.</AvisoOperacion>
                     </div>
                   </div>
+                  <AlertaError mensaje={errorEnvio} />
                   <div className="flex items-center justify-between pb-2">
-                    <button onClick={() => setStep("form")} className="px-5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: "transparent", color: "#7c6fa0", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.color = "#c4b5fd"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.4)"; }} onMouseLeave={(e) => { e.currentTarget.style.color = "#7c6fa0"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.2)"; }}>← Volver</button>
-                    <button onClick={handleConfirm} className="flex items-center gap-2 px-7 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Confirmar consignación</button>
+                    <button type="button" onClick={() => setStep("form")} disabled={enviando} className={claseBotonSecundario}>← Volver</button>
+                    <button type="button" onClick={() => void confirmar()} disabled={enviando} className={claseBotonPrimario}>{enviando ? "Procesando..." : "Confirmar consignación"}</button>
                   </div>
                 </div>
               )}
 
-              {step === "success" && (
+              {step === "success" && resultado && (
                 <div className="flex flex-col items-center text-center gap-6 py-2">
-                  <div className="relative flex items-center justify-center w-20 h-20 rounded-full" style={{ background: "rgba(16,185,129,0.1)", border: "2px solid rgba(16,185,129,0.35)" }}>
-                    <div className="absolute inset-0 rounded-full animate-ping" style={{ background: "rgba(16,185,129,0.07)" }} />
-                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                  </div>
+                  <IconoExito />
                   <div>
-                    <h2 className="text-xl font-bold mb-1" style={{ color: "#f1eeff", fontFamily: "Instrument Sans,sans-serif" }}>¡Consignación registrada!</h2>
-                    <p className="text-sm max-w-sm mx-auto" style={{ color: "#7c6fa0", lineHeight: "1.6" }}>El monto ha sido acreditado a la cuenta destino y la transacción queda registrada en el historial.</p>
+                    <h2 className="text-xl font-bold mb-1 text-text-primary font-display">¡Consignación registrada!</h2>
+                    <p className="text-sm max-w-sm mx-auto text-text-muted">El monto fue acreditado a la cuenta destino y la transacción quedó registrada en el historial.</p>
                   </div>
-                  {cuentaPropia && (
-                    <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: "linear-gradient(135deg,#0f3d25,#1a4d35,#0d3b22)", border: "1px solid rgba(16,185,129,0.3)", boxShadow: "0 16px 40px rgba(16,185,129,0.15)" }}>
-                      <div className="px-6 pt-5 pb-4">
-                        <div className="flex items-center justify-between mb-6">
-                          <div className="text-xs font-semibold tracking-wider opacity-70" style={{ fontFamily: "Instrument Sans,sans-serif" }}>BANCO X</div>
-                          <div className="text-xs opacity-60">{cuentaPropia.tipo.toUpperCase()}</div>
-                        </div>
-                        <div className="text-sm font-mono mb-1 opacity-70">{cuentaPropia.numero}</div>
-                        <div className="text-xs opacity-50 mb-4">Número de cuenta</div>
-                        <div className="flex items-end justify-between">
-                          <div>
-                            <div className="text-xs opacity-60 mb-0.5">Titular</div>
-                            <div className="text-sm font-semibold" style={{ fontFamily: "Instrument Sans,sans-serif" }}>{CLIENTE_ACTIVO.nombre}</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs opacity-60 mb-0.5">Saldo disponible</div>
-                            <div className="text-2xl font-bold" style={{ fontFamily: "Instrument Sans,sans-serif", color: "#86efac" }}>{fmtCOP(cuentaPropia.saldo)}</div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="px-6 py-2.5 flex items-center justify-between" style={{ background: "rgba(0,0,0,0.2)", borderTop: "1px solid rgba(16,185,129,0.2)" }}>
-                        <span className="text-xs opacity-50">Acreditado</span>
-                        <span className="text-sm font-bold" style={{ color: "#86efac" }}>+{fmtCOP(monto)}</span>
-                      </div>
+                  <div className="w-full max-w-sm rounded-2xl overflow-hidden text-left border border-purple-400/20">
+                    <div className="px-5 py-4 bg-gradient-to-br from-success/10 to-purple-600/10 border-b border-border">
+                      <div className="text-xs uppercase tracking-wider mb-0.5 text-emerald-400 font-display">Comprobante de consignación</div>
+                      <div className="text-xl font-bold text-text-primary font-display">{fmtCOP(Number(resultado.monto))}</div>
                     </div>
-                  )}
-                  <div className="w-full max-w-sm rounded-2xl overflow-hidden text-left" style={{ border: "1px solid rgba(139,92,246,0.2)" }}>
-                    <div className="px-5 py-4" style={{ background: "linear-gradient(135deg,rgba(16,185,129,0.12),rgba(109,40,217,0.12))", borderBottom: "1px solid rgba(139,92,246,0.15)" }}>
-                      <div className="text-xs uppercase tracking-wider mb-0.5" style={{ color: "#34d399", fontFamily: "Instrument Sans,sans-serif" }}>Comprobante de consignación</div>
-                      <div className="text-xl font-bold" style={{ color: "#f1eeff", fontFamily: "Instrument Sans,sans-serif" }}>{fmtCOP(monto)}</div>
-                    </div>
-                    <div className="px-5 py-4 flex flex-col gap-2.5" style={{ background: "#130d24" }}>
-                      {[
-                        { label: "Referencia", value: referencia },
-                        { label: "Cuenta acreditada", value: cuentaDestinoNum },
-                        { label: "Titular", value: destinoInfo?.nombre ?? "—" },
-                        { label: "Canal", value: CANALES_CONSIGNACION.find((c) => c.id === canal)?.label ?? canal },
-                        { label: "Remitente", value: remitente || "No especificado" },
-                        { label: "Fecha", value: fmtFecha(new Date().toISOString()) },
-                        { label: "Estado", value: "Acreditado", green: true },
-                      ].map((r) => (
-                        <div key={r.label} className="flex items-center justify-between py-1" style={{ borderBottom: "1px solid rgba(139,92,246,0.07)" }}>
-                          <span className="text-xs" style={{ color: "#7c6fa0" }}>{r.label}</span>
-                          <span className="text-xs font-semibold" style={{ color: (r as { green?: boolean }).green ? "#34d399" : "#c4b5fd" }}>{r.value}</span>
-                        </div>
-                      ))}
+                    <div className="px-5 py-3 bg-sidebar">
+                      <FilasResumen
+                        filas={[
+                          { label: "Referencia", value: resultado.referencia },
+                          { label: "Cuenta acreditada", value: resultado.cuentaDestino ?? destinoNum },
+                          { label: "Titular", value: resultado.titularDestino ?? titularDestino },
+                          { label: "Canal", value: canalInfo.label },
+                          { label: "Remitente", value: resultado.titularOrigen ?? "—" },
+                          { label: "Fecha", value: fmtFecha(resultado.fecha) },
+                          ...(cuentaPropiaDestino ? [{ label: "Saldo actual", value: fmtCOP(Number(cuentaPropiaDestino.saldo)), tono: "ok" as const }] : []),
+                          { label: "Estado", value: "Acreditado", tono: "ok" },
+                        ]}
+                      />
                     </div>
                   </div>
-                  <div className="flex gap-3">
-                    <button onClick={handleReset} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Nueva consignación</button>
-                    <button onClick={() => navigate("/inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button type="button" onClick={nuevaConsignacion} className={claseBotonSecundario}>Nueva consignación</button>
+                    {cuentaPropiaDestino && (
+                      <button type="button" onClick={() => navigate(`/cuentas/transaccion?ref=${encodeURIComponent(resultado.referencia)}&cuenta=${encodeURIComponent(destinoNum)}`)} className={claseBotonSecundario}>Ver comprobante</button>
+                    )}
+                    <button type="button" onClick={() => navigate("/inicio")} className={claseBotonPrimario}>Ir al inicio</button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Panel derecho */}
             <div className="flex flex-col gap-4">
-              <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "#7c6fa0", fontFamily: "Instrument Sans,sans-serif" }}>Mis saldos</div>
-                {cuentas.map((c) => (
-                  <div key={c.numero} className="flex items-center justify-between py-2.5" style={{ borderBottom: "1px solid rgba(139,92,246,0.07)" }}>
-                    <div>
-                      <div className="text-xs font-medium" style={{ color: "#c4b5fd" }}>{c.tipo}</div>
-                      <div className="text-xs font-mono" style={{ color: "#7c6fa0", fontSize: "10px" }}>{c.numero}</div>
-                    </div>
-                    <div className="text-sm font-bold" style={{ color: "#a78bfa", fontFamily: "Instrument Sans,sans-serif" }}>{fmtCOP(c.saldo)}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "#7c6fa0", fontFamily: "Instrument Sans,sans-serif" }}>Canales disponibles</div>
-                <div className="flex flex-col gap-3">
-                  {CANALES_CONSIGNACION.map((ch) => (
-                    <div key={ch.id} className="flex items-start gap-3 py-2" style={{ borderBottom: "1px solid rgba(139,92,246,0.07)" }}>
-                      <span className="text-lg">{ch.icon}</span>
-                      <div>
-                        <div className="text-xs font-semibold mb-0.5" style={{ color: "#c4b5fd" }}>{ch.label}</div>
-                        <div className="text-xs leading-relaxed" style={{ color: "#7c6fa0" }}>{ch.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-2xl p-5" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: "#7c6fa0", fontFamily: "Instrument Sans,sans-serif" }}>Historial reciente</div>
-                <div className="flex flex-col gap-1">
-                  {historial.slice(0, 5).map((tx) => (
-                    <div key={tx.id} className="flex items-center gap-3 py-2" style={{ borderBottom: "1px solid rgba(139,92,246,0.06)" }}>
-                      <div className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0" style={{ background: tx.tipo === "recibida" ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.1)" }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={tx.tipo === "recibida" ? "#10b981" : "#f87171"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          {tx.tipo === "recibida" ? <path d="M12 19V5M5 12l7 7 7-7" /> : <path d="M12 5v14M19 12l-7-7-7 7" />}
-                        </svg>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium truncate" style={{ color: "#c4b5fd" }}>{tx.descripcion}</div>
-                        <div className="text-xs" style={{ color: "#7c6fa0", fontSize: "10px" }}>{fmtFecha(tx.fecha)}</div>
-                      </div>
-                      <div className="text-xs font-bold shrink-0" style={{ color: tx.tipo === "recibida" ? "#34d399" : "#f87171", fontFamily: "Instrument Sans,sans-serif" }}>
-                        {tx.tipo === "recibida" ? "+" : "-"}{fmtCOP(tx.monto)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <PanelSaldos cuentas={cuentas} />
+              <PanelHistorialReciente key={`${propiaNum}-${resultado?.referencia ?? ""}`} numeroCuenta={propiaNum} />
             </div>
           </div>
         </div>

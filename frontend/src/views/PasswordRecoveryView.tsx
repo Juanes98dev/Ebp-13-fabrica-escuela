@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { CLIENTE_ACTIVO } from "../shared/data"
-import { apiRequest } from "../shared/api"
+import { apiRequest, errorMessage } from "../shared/api"
+import { clearSession } from "../shared/session"
 import {
   IcoAlert,
   IcoCheck,
@@ -16,16 +16,21 @@ import {
 } from "../shared/icons"
 
 type Step = "request" | "verify" | "reset" | "success"
-type CodeState = "active" | "expired" | "invalidated" | "used"
+type CodeState = "active" | "expired" | "invalidated"
 
-const REGISTERED_EMAIL = CLIENTE_ACTIVO.email
-const VALID_CODE = "482913"
+const MAX_INTENTOS = 3
+
+function enmascararCorreo(correo: string) {
+  const [usuario, dominio] = correo.split("@")
+  if (!usuario || !dominio) return correo
+  const visible = usuario.length <= 2 ? usuario[0] : `${usuario[0]}${"•".repeat(Math.min(usuario.length - 2, 6))}${usuario[usuario.length - 1]}`
+  return `${visible}@${dominio}`
+}
 
 export default function PasswordRecoveryView() {
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>("request")
   const [email, setEmail] = useState("")
-  const [requestCount, setRequestCount] = useState(0)
   const [genericNotice, setGenericNotice] = useState("")
   const [requestError, setRequestError] = useState("")
   const [isSending, setIsSending] = useState(false)
@@ -33,6 +38,7 @@ export default function PasswordRecoveryView() {
   const [codeState, setCodeState] = useState<CodeState>("active")
   const [failedAttempts, setFailedAttempts] = useState(0)
   const [codeError, setCodeError] = useState("")
+  const [isVerifying, setIsVerifying] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(600)
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -45,7 +51,7 @@ export default function PasswordRecoveryView() {
 
   const passwordRules = useMemo(
     () => [
-      { label: "Mínimo 8 caracteres", valid: newPassword.length >= 8 },
+      { label: "Entre 8 y 64 caracteres", valid: newPassword.length >= 8 && newPassword.length <= 64 },
       { label: "Una letra mayúscula", valid: /[A-Z]/.test(newPassword) },
       { label: "Un número", valid: /\d/.test(newPassword) },
       {
@@ -114,9 +120,7 @@ export default function PasswordRecoveryView() {
         method: "POST",
         body: JSON.stringify({ correo: normalized }),
       })
-      setIsSending(false)
       setGenericNotice(result.mensaje)
-      setRequestCount((count) => count + 1)
       setCode(["", "", "", "", "", ""])
       setFailedAttempts(0)
       setCodeError("")
@@ -124,8 +128,9 @@ export default function PasswordRecoveryView() {
       setSecondsLeft(600)
       setStep("verify")
     } catch (error) {
+      setRequestError(errorMessage(error, "No fue posible solicitar el código"))
+    } finally {
       setIsSending(false)
-      setRequestError(error instanceof Error ? error.message : "No fue posible solicitar el código")
     }
   }
 
@@ -147,7 +152,16 @@ export default function PasswordRecoveryView() {
     }
   }
 
-  function verifyCode(event: React.FormEvent) {
+  function handleCodePaste(event: React.ClipboardEvent<HTMLInputElement>) {
+    const digits = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6)
+    if (digits.length < 2) return
+    event.preventDefault()
+    setCode(Array.from({ length: 6 }, (_, index) => digits[index] ?? ""))
+    setCodeError("")
+    inputRefs.current[Math.min(digits.length, 5)]?.focus()
+  }
+
+  async function verifyCode(event: React.FormEvent) {
     event.preventDefault()
     const enteredCode = code.join("")
     if (enteredCode.length !== 6) {
@@ -158,17 +172,25 @@ export default function PasswordRecoveryView() {
       setCodeError("El código ha vencido, solicite uno nuevo")
       return
     }
-    if (codeState === "used") {
-      setCodeError("El código no es válido")
-      return
+
+    setIsVerifying(true)
+    try {
+      await apiRequest("/api/auth/verificar-codigo", {
+        method: "POST",
+        body: JSON.stringify({ correo: email.trim().toLowerCase(), codigo: enteredCode }),
+      })
+      setCodeError("")
+      setStep("reset")
+    } catch (error) {
+      const mensaje = errorMessage(error, "No fue posible verificar el código")
+      setCodeError(mensaje)
+      const restantes = /Intentos restantes: (\d+)/.exec(mensaje)
+      if (restantes) setFailedAttempts(MAX_INTENTOS - Number(restantes[1]))
+      else if (mensaje.includes("vencido")) setCodeState("expired")
+      else if (mensaje.includes("invalidado") || mensaje === "El código no es válido") setCodeState("invalidated")
+    } finally {
+      setIsVerifying(false)
     }
-    if (codeState === "invalidated") {
-      setCodeError("El código no es válido")
-      return
-    }
-    setCodeState("used")
-    setCodeError("")
-    setStep("reset")
   }
 
   function requestAnotherCode() {
@@ -201,58 +223,23 @@ export default function PasswordRecoveryView() {
           password: newPassword,
         }),
       })
-      window.localStorage.removeItem("bancox-session-token")
-      window.localStorage.removeItem("bancox-user-id")
-      window.localStorage.removeItem("bancox-role")
-      window.localStorage.removeItem("bancox-name")
-      window.localStorage.removeItem("bancox-cedula")
-      setIsSaving(false)
+      clearSession()
+      setNewPassword("")
+      setConfirmPassword("")
       setStep("success")
     } catch (error) {
+      const mensaje = errorMessage(error, "No fue posible restablecer la contraseña")
+      if (mensaje.includes("código")) {
+        setStep("verify")
+        setCode(["", "", "", "", "", ""])
+        setCodeState("invalidated")
+        setCodeError(mensaje)
+      } else {
+        setPasswordErrors({ confirmation: mensaje })
+      }
+    } finally {
       setIsSaving(false)
-      setPasswordErrors({
-        confirmation:
-          error instanceof Error ? error.message : "No fue posible restablecer la contraseña",
-      })
     }
-  }
-
-  function simulateExpiredCode() {
-    setCodeState("expired")
-    setSecondsLeft(0)
-    setCode(["4", "8", "2", "9", "1", "3"])
-    setCodeError("")
-  }
-
-  function simulateRequestLimit() {
-    setEmail(REGISTERED_EMAIL)
-    setRequestCount(3)
-    setRequestError("")
-    setGenericNotice("")
-  }
-
-  function testCodeReuse() {
-    setStep("verify")
-    setCodeState("used")
-    setCode(["4", "8", "2", "9", "1", "3"])
-    setCodeError("")
-    setSecondsLeft(480)
-  }
-
-  function resetDemo() {
-    setStep("request")
-    setEmail("")
-    setRequestCount(0)
-    setGenericNotice("")
-    setRequestError("")
-    setCode(["", "", "", "", "", ""])
-    setCodeState("active")
-    setFailedAttempts(0)
-    setCodeError("")
-    setSecondsLeft(600)
-    setNewPassword("")
-    setConfirmPassword("")
-    setPasswordErrors({})
   }
 
   const minutes = Math.floor(secondsLeft / 60)
@@ -374,9 +361,6 @@ export default function PasswordRecoveryView() {
               <IcoShield />
               Código de un solo uso
             </span>
-            <span className="rounded-lg border border-border bg-purple-600/15 px-3 py-1.5 text-xs text-purple-200">
-              HUS-02-02-04
-            </span>
           </div>
         </header>
 
@@ -495,9 +479,6 @@ export default function PasswordRecoveryView() {
                     )}
                   </button>
                 </form>
-
-                <div className="mt-6 rounded-xl border border-border bg-sidebar p-4">
-                </div>
               </div>
             )}
 
@@ -512,9 +493,9 @@ export default function PasswordRecoveryView() {
                       Ingresa el código
                     </h2>
                     <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                      Enviamos un código de 6 dígitos a{" "}
-                      <span className="font-medium text-text-secondary">
-                        v••••••s@email.com
+                      Si el correo está registrado, enviamos un código de 6 dígitos a{" "}
+                      <span className="font-medium text-text-secondary" data-i18n-ignore>
+                        {enmascararCorreo(email.trim().toLowerCase())}
                       </span>
                     </p>
                   </div>
@@ -554,6 +535,8 @@ export default function PasswordRecoveryView() {
                           updateCode(index, event.target.value)
                         }
                         onKeyDown={(event) => handleCodeKeyDown(index, event)}
+                        onPaste={handleCodePaste}
+                        disabled={codeState !== "active"}
                         aria-label={`Dígito ${index + 1}`}
                         className={`h-14 min-w-0 flex-1 rounded-xl border bg-purple-400/5 text-center font-display text-xl font-bold text-text-primary outline-none focus:ring-4 focus:ring-purple-400/10 ${
                           codeError
@@ -591,13 +574,23 @@ export default function PasswordRecoveryView() {
                     </div>
                   )}
 
-                  {codeState !== "invalidated" ? (
+                  {codeState === "active" ? (
                     <button
                       type="submit"
-                      className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-purple-600 to-accent py-3.5 text-sm font-semibold text-white shadow-lg shadow-purple-600/25"
+                      disabled={isVerifying}
+                      className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-purple-600 to-accent py-3.5 text-sm font-semibold text-white shadow-lg shadow-purple-600/25 disabled:opacity-60"
                     >
-                      <IcoShield />
-                      Verificar código
+                      {isVerifying ? (
+                        <>
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                          Verificando...
+                        </>
+                      ) : (
+                        <>
+                          <IcoShield />
+                          Verificar código
+                        </>
+                      )}
                     </button>
                   ) : (
                     <button
@@ -609,28 +602,7 @@ export default function PasswordRecoveryView() {
                       Solicitar un código nuevo
                     </button>
                   )}
-                  {(codeState === "expired" || codeState === "used") &&
-                    codeError && (
-                      <button
-                        type="button"
-                        onClick={requestAnotherCode}
-                        className="mt-3 w-full rounded-xl border border-border py-3 text-xs font-semibold text-purple-200 hover:bg-purple-400/10"
-                      >
-                        Solicitar un código nuevo
-                      </button>
-                    )}
                 </form>
-
-                <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-border bg-sidebar p-4 text-xs text-text-muted">
-                    <span className="font-semibold text-purple-200">
-                      Código para probar
-                    </span>
-                    <div className="mt-2 font-display text-lg font-bold tracking-[0.25em] text-text-secondary">
-                      482913
-                    </div>
-                  </div>
-                </div>
 
                 <button
                   type="button"
@@ -651,8 +623,8 @@ export default function PasswordRecoveryView() {
                   Crea una nueva contraseña
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-text-muted">
-                  El código ya fue consumido y no podrá utilizarse nuevamente.
-                  Al guardar, cerraremos todas tus sesiones abiertas.
+                  El código solo puede usarse una vez. Al guardar, cerraremos
+                  todas tus sesiones abiertas.
                 </p>
 
                 <div className="mt-6 flex items-start gap-3 rounded-xl border border-success/25 bg-success/10 px-4 py-3.5">
@@ -664,8 +636,7 @@ export default function PasswordRecoveryView() {
                       Código verificado correctamente
                     </div>
                     <p className="mt-1 text-xs text-text-muted">
-                      El código fue marcado como utilizado y eliminado de forma
-                      segura.
+                      Completa el cambio antes de que el código venza ({formattedTime}).
                     </p>
                   </div>
                 </div>
@@ -801,9 +772,8 @@ export default function PasswordRecoveryView() {
                       <IcoInfo />
                     </span>
                     <p className="text-xs leading-relaxed text-text-muted">
-                      Por seguridad se cerrarán las sesiones de Chrome en
-                      Windows y Safari en iPhone. Deberás iniciar sesión con tu
-                      nueva contraseña.
+                      Por seguridad se cerrarán todas tus sesiones abiertas.
+                      Deberás iniciar sesión con tu nueva contraseña.
                     </p>
                   </div>
 
@@ -847,7 +817,7 @@ export default function PasswordRecoveryView() {
                 <div className="mt-7 grid grid-cols-1 gap-3 text-left sm:grid-cols-2">
                   <div className="rounded-xl border border-success/20 bg-success/5 p-4">
                     <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
-                      <IcoLock />2 sesiones cerradas
+                      <IcoLock />Sesiones cerradas
                     </div>
                     <p className="mt-1.5 text-[11px] text-text-muted">
                       Los tokens de acceso fueron invalidados.
@@ -872,13 +842,6 @@ export default function PasswordRecoveryView() {
                   <IcoUser />
                   Ir a iniciar sesión
                 </button>
-                <button
-                  type="button"
-                  onClick={testCodeReuse}
-                  className="mt-4 text-xs font-semibold text-purple-300 hover:text-purple-200"
-                >
-                  Probar reutilización del código
-                </button>
               </div>
             )}
 
@@ -887,14 +850,6 @@ export default function PasswordRecoveryView() {
                 <IcoShield />
                 Conexión cifrada
               </span>
-              <span className="h-3 w-px bg-border" />
-              <button
-                type="button"
-                onClick={resetDemo}
-                className="text-[11px] font-semibold text-purple-300 hover:text-purple-200"
-              >
-                Reiniciar demostración
-              </button>
             </div>
           </div>
         </div>

@@ -1,104 +1,93 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import Sidebar from "../shared/Sidebar";
-import { CLIENTES_CONSULTA } from "../shared/data";
-import { apiRequest } from "../shared/api";
+import { ApiError, apiRequest, errorMessage } from "../shared/api";
+import { etiquetaTipoCuenta, fmtCOP, fmtFechaLarga } from "../shared/helpers";
+import { getSession, initials } from "../shared/session";
+import { ESTADO_TARJETA, etiquetaTipoTarjeta } from "../shared/tarjetas";
+import type { ClienteApi, CuentaApi, TarjetaApi } from "../shared/types";
 import {
   IcoAlert,
   IcoCard,
   IcoChevron,
-  IcoClientes,
   IcoClock,
-  IcoConfig,
   IcoCuentas,
-  IcoDash,
   IcoInfo,
-  IcoProductos,
-  IcoReportes,
   IcoSearch,
   IcoShield,
-  IcoTransfer,
   IcoUser,
 } from "../shared/icons";
 
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-];
+type SearchState = "idle" | "loading" | "success" | "not-found" | "error";
 
-type SearchState = "idle" | "loading" | "success" | "not-found";
-
-type ApiCustomer = {
-  id: number;
-  idCliente: string;
-  cedula: string;
-  primerNombre: string;
-  segundoNombre?: string;
-  primerApellido: string;
-  segundoApellido?: string;
-  email?: string;
-  telefono?: string;
-  direccion?: string;
-  ciudad?: string;
-  activo: boolean;
+type Resultado = {
+  cliente: ClienteApi;
+  cuentas: CuentaApi[];
+  tarjetas: TarjetaApi[];
 };
 
+const PATRON_CRITERIO = /^[A-Za-z0-9-]{6,30}$/;
+
+function normalizarCriterio(valor: string) {
+  return valor.trim().replace(/\s+/g, "");
+}
+
 export default function CustomerLookupView() {
-  const [activeNav, setActiveNav] = useState("clientes");
-  const [query, setQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get("cedula") ?? "");
   const [error, setError] = useState("");
   const [state, setState] = useState<SearchState>("idle");
   const [lastQuery, setLastQuery] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<(typeof CLIENTES_CONSULTA)[number] | null>(null);
+  const [resultado, setResultado] = useState<Resultado | null>(null);
+  const gestor = getSession()?.nombre ?? "Gestor";
+
+  const buscar = useCallback(async (valor: string) => {
+    setError("");
+    setState("loading");
+    setLastQuery(valor);
+    try {
+      const cliente = await apiRequest<ClienteApi>(`/api/clientes/buscar/${encodeURIComponent(valor)}`);
+      const [cuentas, tarjetas] = await Promise.all([
+        apiRequest<CuentaApi[]>(`/api/cuentas/cliente/${cliente.id}`),
+        apiRequest<TarjetaApi[]>(`/api/tarjetas?clienteId=${cliente.id}`),
+      ]);
+      setResultado({ cliente, cuentas, tarjetas: tarjetas.filter((t) => t.estado !== "eliminada") });
+      setState("success");
+    } catch (caught) {
+      setResultado(null);
+      if (caught instanceof ApiError && caught.status === 404) {
+        setState("not-found");
+      } else {
+        setError(errorMessage(caught, "No fue posible consultar el cliente"));
+        setState("error");
+      }
+    }
+  }, []);
+
+  const cedulaParam = searchParams.get("cedula");
+  useEffect(() => {
+    if (cedulaParam && PATRON_CRITERIO.test(normalizarCriterio(cedulaParam))) {
+      void buscar(normalizarCriterio(cedulaParam));
+    }
+  }, [cedulaParam, buscar]);
 
   function handleChange(value: string) {
     setQuery(value);
     setError("");
-    if (state !== "idle") setState("idle");
+    if (state !== "idle" && state !== "success") setState("idle");
   }
 
-  async function handleSearch(event: React.FormEvent) {
+  function handleSearch(event: React.FormEvent) {
     event.preventDefault();
-    const value = query.trim().replace(/\s+/g, "");
-    if (!/^[A-Za-z0-9-]{6,30}$/.test(value)) {
+    const value = normalizarCriterio(query);
+    if (!PATRON_CRITERIO.test(value)) {
       setError("Ingrese una cédula o identificador válido");
-      setState("idle");
       return;
     }
-
-    setError("");
-    setState("loading");
-    setLastQuery(value);
-    try {
-      const customer = await apiRequest<ApiCustomer>(`/api/clientes/buscar/${encodeURIComponent(value)}`);
-      const name = [customer.primerNombre, customer.segundoNombre, customer.primerApellido, customer.segundoApellido].filter(Boolean).join(" ");
-      setSelectedCustomer({
-        id: customer.idCliente,
-        document: customer.cedula,
-        formattedDocument: customer.cedula,
-        name,
-        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
-        status: customer.activo ? "Activo" : "Inactivo",
-        customerSince: "No disponible",
-        personal: [
-          { label: "Número de documento", value: customer.cedula },
-          { label: "Correo electrónico", value: customer.email ?? "No disponible" },
-          { label: "Teléfono", value: customer.telefono ?? "No disponible" },
-          { label: "Ciudad", value: customer.ciudad ?? "No disponible" },
-          { label: "Dirección", value: customer.direccion ?? "No disponible" },
-        ],
-        accounts: [],
-        cards: [],
-      });
-      setState("success");
-    } catch (caught) {
-      setSelectedCustomer(null);
-      setError(caught instanceof Error ? caught.message : "Cliente no encontrado");
-      setState("not-found");
+    if (value === cedulaParam) {
+      void buscar(value);
+    } else {
+      setSearchParams({ cedula: value });
     }
   }
 
@@ -107,34 +96,35 @@ export default function CustomerLookupView() {
     setError("");
     setState("idle");
     setLastQuery("");
-    setSelectedCustomer(null);
+    setResultado(null);
+    setSearchParams({});
   }
 
-  function useTestCustomer(document: string) {
-    setQuery(document);
-    setError("");
-    setState("idle");
-    setSelectedCustomer(null);
-  }
+  const cliente = resultado?.cliente;
+  const datosPersonales = cliente
+    ? [
+        { label: "Número de documento", value: cliente.cedula },
+        { label: "Correo electrónico", value: cliente.email ?? "No registrado" },
+        { label: "Teléfono", value: cliente.telefono ?? "No registrado" },
+        { label: "Fecha de nacimiento", value: fmtFechaLarga(cliente.fechaNacimiento) },
+        { label: "Ciudad", value: cliente.ciudad ?? "No registrada" },
+        { label: "Departamento", value: cliente.departamento ?? "No registrado" },
+        { label: "Dirección", value: cliente.direccion ?? "No registrada" },
+      ]
+    : [];
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={MANAGER_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel="Gestor Rodríguez"
-        userSub="Gestor Bancario"
-        userInitials="GR"
-        badge="Plataforma Gestión"
-      />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10 bg-bg-base/95 border-b border-border backdrop-blur">
           <div className="flex items-center gap-2 text-sm text-text-muted">
             <span>Clientes</span><IcoChevron /><span className="text-text-secondary">Consultar cliente</span>
           </div>
-          
+          <Link to="/gestor/clientes/nuevo" className="px-4 py-2 rounded-lg text-xs font-semibold bg-purple-400/10 text-purple-200 border border-border hover:bg-purple-400/15">
+            Registrar cliente
+          </Link>
         </div>
 
         <div className="px-8 py-7 max-w-6xl">
@@ -164,7 +154,7 @@ export default function CustomerLookupView() {
                     onChange={(event) => handleChange(event.target.value)}
                     aria-invalid={Boolean(error)}
                     aria-describedby={error ? "customer-search-error" : "customer-search-help"}
-                    placeholder="Ej: 1020304050"
+                    placeholder="Ej: 1020304050 o BX-..."
                     autoComplete="off"
                     className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm outline-none bg-purple-400/5 text-text-primary border transition-all focus:ring-4 focus:ring-purple-400/10 ${error ? "border-danger" : "border-border focus:border-purple-400/60"}`}
                   />
@@ -172,7 +162,7 @@ export default function CustomerLookupView() {
                 {error ? (
                   <span id="customer-search-error" className="flex items-center gap-1.5 text-xs mt-2 text-red-400"><IcoAlert />{error}</span>
                 ) : (
-                  <span id="customer-search-help" className="block text-xs mt-2 text-text-muted">Entre 6 y 20 caracteres. Se permiten letras, números y guiones.</span>
+                  <span id="customer-search-help" className="block text-xs mt-2 text-text-muted">Entre 6 y 30 caracteres. Se permiten letras, números y guiones.</span>
                 )}
               </div>
               <button
@@ -196,8 +186,7 @@ export default function CustomerLookupView() {
             </p>
           </div>
 
-
-          {state === "idle" && !error && (
+          {state === "idle" && (
             <div className="rounded-2xl py-14 px-6 flex flex-col items-center text-center bg-sidebar border border-border">
               <div className="flex items-center justify-center w-14 h-14 rounded-2xl mb-4 bg-purple-600/15 text-purple-300"><IcoUser /></div>
               <div className="text-base font-semibold text-text-secondary font-display">Busca un cliente para ver su información</div>
@@ -205,38 +194,63 @@ export default function CustomerLookupView() {
             </div>
           )}
 
-          {state === "not-found" && (
+          {(state === "not-found" || state === "error") && (
             <div role="alert" className="rounded-2xl py-12 px-6 flex flex-col items-center text-center bg-sidebar border border-danger/25">
               <div className="flex items-center justify-center w-14 h-14 rounded-full mb-4 bg-danger/10 text-red-400"><IcoAlert /></div>
-              <h2 className="text-lg font-bold text-text-primary font-display">Cliente no encontrado</h2>
-              <p className="text-sm text-text-muted mt-1">No encontramos un cliente asociado a “{lastQuery}”. Verifica el dato e intenta nuevamente.</p>
-              <button type="button" onClick={clearSearch} className="mt-5 px-5 py-2.5 rounded-xl text-sm font-semibold bg-purple-400/10 text-purple-200 border border-border hover:bg-purple-400/15">
-                Realizar otra búsqueda
-              </button>
+              <h2 className="text-lg font-bold text-text-primary font-display">
+                {state === "not-found" ? "Cliente no encontrado" : "No fue posible completar la consulta"}
+              </h2>
+              <p className="text-sm text-text-muted mt-1">
+                {state === "not-found"
+                  ? `No encontramos un cliente asociado a “${lastQuery}”. Verifica el dato e intenta nuevamente.`
+                  : "Intenta nuevamente en unos segundos."}
+              </p>
+              <div className="flex gap-3 mt-5">
+                {state === "error" && (
+                  <button type="button" onClick={() => void buscar(lastQuery)} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-br from-purple-600 to-accent">
+                    Reintentar
+                  </button>
+                )}
+                <button type="button" onClick={clearSearch} className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-purple-400/10 text-purple-200 border border-border hover:bg-purple-400/15">
+                  Realizar otra búsqueda
+                </button>
+              </div>
             </div>
           )}
 
-          {state === "success" && selectedCustomer && (
+          {state === "success" && resultado && cliente && (
             <div className="flex flex-col gap-5">
               <div className="rounded-2xl p-6 bg-gradient-to-br from-purple-600/20 to-accent/5 border border-purple-400/30">
                 <div className="flex items-center gap-5">
-                  <div className="flex items-center justify-center w-16 h-16 rounded-2xl text-lg font-bold bg-gradient-to-br from-purple-600 to-accent text-white font-display">{selectedCustomer.initials}</div>
+                  <div className="flex items-center justify-center w-16 h-16 rounded-2xl text-lg font-bold bg-gradient-to-br from-purple-600 to-accent text-white font-display">{initials(cliente.nombreCompleto)}</div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h2 className="text-xl font-bold text-text-primary font-display">{selectedCustomer.name}</h2>
-                      <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${selectedCustomer.status === "Activo" ? "bg-success/10 text-emerald-400 border-success/25" : "bg-warn/10 text-amber-400 border-warn/25"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${selectedCustomer.status === "Activo" ? "bg-success" : "bg-warn"}`} />{selectedCustomer.status}
+                      <h2 className="text-xl font-bold text-text-primary font-display">{cliente.nombreCompleto}</h2>
+                      <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cliente.activo ? "bg-success/10 text-emerald-400 border-success/25" : "bg-warn/10 text-amber-400 border-warn/25"}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${cliente.activo ? "bg-success" : "bg-warn"}`} />{cliente.activo ? "Activo" : "Inactivo"}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted">
-                      <span>CC {selectedCustomer.formattedDocument}</span>
-                      <span>ID {selectedCustomer.id}</span>
-                      <span>Cliente desde {selectedCustomer.customerSince}</span>
+                      <span data-i18n-ignore>CC {cliente.cedula}</span>
+                      <span data-i18n-ignore>ID {cliente.idCliente}</span>
+                      <span>Cliente desde {fmtFechaLarga(cliente.fechaRegistro)}</span>
                     </div>
                   </div>
-                  <button type="button" onClick={clearSearch} className="px-4 py-2 rounded-lg text-xs font-semibold bg-purple-400/10 text-purple-200 border border-border hover:bg-purple-400/15">
-                    Nueva consulta
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    {cliente.activo && (
+                      <>
+                        <Link to={`/gestor/clientes/modificar?cedula=${encodeURIComponent(cliente.cedula)}`} className="px-4 py-2 rounded-lg text-xs font-semibold text-center text-white bg-gradient-to-br from-purple-600 to-accent">
+                          Modificar datos
+                        </Link>
+                        <Link to={`/gestor/clientes/desactivar?cedula=${encodeURIComponent(cliente.cedula)}`} className="px-4 py-2 rounded-lg text-xs font-semibold text-center bg-danger/10 text-red-300 border border-danger/25 hover:bg-danger/15">
+                          Desactivar cliente
+                        </Link>
+                      </>
+                    )}
+                    <button type="button" onClick={clearSearch} className="px-4 py-2 rounded-lg text-xs font-semibold bg-purple-400/10 text-purple-200 border border-border hover:bg-purple-400/15">
+                      Nueva consulta
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -246,13 +260,12 @@ export default function CustomerLookupView() {
                     <span className="text-purple-300"><IcoUser /></span>
                     <h2 className="text-sm font-semibold text-purple-200 font-display">Datos personales</h2>
                   </div>
-                  <span className="flex items-center gap-1.5 text-xs text-text-muted"><IcoShield />Información verificada</span>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
-                  {selectedCustomer.personal.map((item) => (
+                  {datosPersonales.map((item) => (
                     <div key={item.label}>
                       <div className="text-xs text-text-muted mb-1">{item.label}</div>
-                      <div className="text-sm font-medium text-text-secondary">{item.value}</div>
+                      <div className="text-sm font-medium text-text-secondary break-words">{item.value}</div>
                     </div>
                   ))}
                 </div>
@@ -265,23 +278,32 @@ export default function CustomerLookupView() {
                       <span className="text-purple-300"><IcoCuentas /></span>
                       <h2 className="text-sm font-semibold text-purple-200 font-display">Cuentas</h2>
                     </div>
-                    <span className="text-xs px-2 py-1 rounded-md bg-purple-400/10 text-purple-300">{selectedCustomer.accounts.length} {selectedCustomer.accounts.length === 1 ? "producto" : "productos"}</span>
+                    <span className="text-xs px-2 py-1 rounded-md bg-purple-400/10 text-purple-300">{resultado.cuentas.length} {resultado.cuentas.length === 1 ? "producto" : "productos"}</span>
                   </div>
-                  <div className="divide-y divide-border">
-                    {selectedCustomer.accounts.map((account) => (
-                      <div key={account.number} className="p-5 flex items-center gap-4">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoCuentas /></div>
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold text-text-secondary">{account.type}</div>
-                          <div className="text-xs text-text-muted mt-0.5">{account.number}</div>
+                  {resultado.cuentas.length === 0 ? (
+                    <p className="p-5 text-sm text-text-muted">El cliente no tiene cuentas registradas.</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {resultado.cuentas.map((cuenta) => (
+                        <div key={cuenta.numeroCuenta} className="p-5 flex items-center gap-4">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoCuentas /></div>
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-text-secondary">{etiquetaTipoCuenta(cuenta.tipo)}</div>
+                            <div className="text-xs text-text-muted mt-0.5" data-i18n-ignore>{cuenta.numeroCuenta}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-text-primary">{fmtCOP(cuenta.saldo)}</div>
+                            <div className={`text-xs mt-0.5 ${cuenta.activa ? "text-emerald-400" : "text-amber-400"}`}>{cuenta.activa ? "Activa" : "Inactiva"}</div>
+                            {cuenta.activa && (
+                              <Link to={`/gestor/cuentas/desactivar?numero=${encodeURIComponent(cuenta.numeroCuenta)}`} className="text-xs text-red-300 hover:underline">
+                                Desactivar
+                              </Link>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-text-primary">{account.balance}</div>
-                          <div className={`text-xs mt-0.5 ${account.status === "Activa" ? "text-emerald-400" : "text-amber-400"}`}>{account.status}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
 
                 <section className="rounded-2xl overflow-hidden bg-sidebar border border-border">
@@ -290,30 +312,40 @@ export default function CustomerLookupView() {
                       <span className="text-purple-300"><IcoCard /></span>
                       <h2 className="text-sm font-semibold text-purple-200 font-display">Tarjetas</h2>
                     </div>
-                    <span className="text-xs px-2 py-1 rounded-md bg-purple-400/10 text-purple-300">{selectedCustomer.cards.length} {selectedCustomer.cards.length === 1 ? "producto" : "productos"}</span>
+                    <span className="text-xs px-2 py-1 rounded-md bg-purple-400/10 text-purple-300">{resultado.tarjetas.length} {resultado.tarjetas.length === 1 ? "producto" : "productos"}</span>
                   </div>
-                  <div className="divide-y divide-border">
-                    {selectedCustomer.cards.map((card) => (
-                      <div key={card.number} className="p-5 flex items-center gap-4">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoCard /></div>
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold text-text-secondary">{card.type}</div>
-                          <div className="text-xs text-text-muted mt-0.5">{card.number} · {card.detail}</div>
+                  {resultado.tarjetas.length === 0 ? (
+                    <p className="p-5 text-sm text-text-muted">El cliente no tiene tarjetas vigentes ni solicitudes.</p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {resultado.tarjetas.map((tarjeta) => (
+                        <div key={tarjeta.id} className="p-5 flex items-center gap-4">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoCard /></div>
+                          <div className="flex-1">
+                            <div className="text-sm font-semibold text-text-secondary">{etiquetaTipoTarjeta(tarjeta.tipo)}</div>
+                            <div className="text-xs text-text-muted mt-0.5">
+                              <span data-i18n-ignore>{tarjeta.numeroEnmascarado}</span>
+                              {" · "}
+                              {tarjeta.tipo === "CREDITO"
+                                ? `Cupo ${fmtCOP(tarjeta.cupoTotal ?? 0)}`
+                                : tarjeta.cuentaAsociada ?? "Sin cuenta asociada"}
+                            </div>
+                          </div>
+                          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${ESTADO_TARJETA[tarjeta.estado].clase}`}>
+                            {ESTADO_TARJETA[tarjeta.estado].label}
+                          </span>
                         </div>
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${card.status === "Activa" ? "bg-success/10 text-emerald-400 border-success/25" : "bg-warn/10 text-amber-400 border-warn/25"}`}>
-                          {card.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </section>
               </div>
 
               <div className="flex items-center gap-3 rounded-xl px-4 py-3.5 bg-success/5 border border-success/20">
                 <span className="text-emerald-400"><IcoClock /></span>
                 <div>
-                  <div className="text-xs font-semibold text-emerald-400">Consulta registrada exitosamente</div>
-                  <div className="text-xs text-text-muted mt-0.5">Auditoría asociada a Gestor Rodríguez · Criterio: {lastQuery} · Registro automático</div>
+                  <div className="text-xs font-semibold text-emerald-400">Consulta registrada en auditoría</div>
+                  <div className="text-xs text-text-muted mt-0.5">Gestor {gestor} · Criterio: {lastQuery}</div>
                 </div>
               </div>
             </div>

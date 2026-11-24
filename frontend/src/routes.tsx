@@ -1,53 +1,69 @@
+import { Suspense, lazy, type ReactNode } from "react"
 import { Navigate, createBrowserRouter } from "react-router"
-import CustomerLookupView from "./views/CustomerLookupView"
-import CustomerDeactivationView from "./views/CustomerDeactivationView"
-import CustomerEditView from "./views/CustomerEditView"
 import LoginView from "./views/LoginView"
-import ManagerView from "./views/ManagerView"
-import ActivityReportView from "./views/ActivityReportView"
-import CardRequestsView from "./views/CardRequestsView"
-import AccountDeactivationView from "./views/AccountDeactivationView"
-import type { ReactNode } from "react"
-import BalanceInquiryView from "./views/BalanceInquiryView"
-import ClientView from "./views/ClientView"
-import CreditCardView from "./views/CreditCardView"
-import CardBlockingView from "./views/CardBlockingView"
-import CardDeletionView from "./views/CardDeletionView"
-import CardInquiryView from "./views/CardInquiryView"
-import CardUnblockingView from "./views/CardUnblockingView"
-import CredentialsView from "./views/CredentialsView"
-import DebitCardView from "./views/DebitCardView"
-import DepositView from "./views/DepositView"
-import SessionLogoutView from "./views/SessionLogoutView"
-import TransactionDetailView from "./views/TransactionDetailView"
-import TransactionHistoryView from "./views/TransactionHistoryView"
-import TransferView from "./views/TransferView"
-import WithdrawView from "./views/WithdrawView"
-import DeviceSessionView from "./views/DeviceSessionView"
-import PasswordRecoveryView from "./views/PasswordRecoveryView"
+import { getSession, homeFor, type Rol } from "./shared/session"
+
+const CustomerLookupView = lazy(() => import("./views/CustomerLookupView"))
+const CustomerDeactivationView = lazy(() => import("./views/CustomerDeactivationView"))
+const CustomerEditView = lazy(() => import("./views/CustomerEditView"))
+const ManagerView = lazy(() => import("./views/ManagerView"))
+const ActivityReportView = lazy(() => import("./views/ActivityReportView"))
+const CardRequestsView = lazy(() => import("./views/CardRequestsView"))
+const AccountDeactivationView = lazy(() => import("./views/AccountDeactivationView"))
+const BalanceInquiryView = lazy(() => import("./views/BalanceInquiryView"))
+const ClientView = lazy(() => import("./views/ClientView"))
+const CreditCardView = lazy(() => import("./views/CreditCardView"))
+const CardBlockingView = lazy(() => import("./views/CardBlockingView"))
+const CardDeletionView = lazy(() => import("./views/CardDeletionView"))
+const CardInquiryView = lazy(() => import("./views/CardInquiryView"))
+const CardUnblockingView = lazy(() => import("./views/CardUnblockingView"))
+const CredentialsView = lazy(() => import("./views/CredentialsView"))
+const DebitCardView = lazy(() => import("./views/DebitCardView"))
+const DepositView = lazy(() => import("./views/DepositView"))
+const SessionLogoutView = lazy(() => import("./views/SessionLogoutView"))
+const TransactionDetailView = lazy(() => import("./views/TransactionDetailView"))
+const TransactionHistoryView = lazy(() => import("./views/TransactionHistoryView"))
+const TransferView = lazy(() => import("./views/TransferView"))
+const WithdrawView = lazy(() => import("./views/WithdrawView"))
+const DeviceSessionView = lazy(() => import("./views/DeviceSessionView"))
+const PasswordRecoveryView = lazy(() => import("./views/PasswordRecoveryView"))
+
+function CargandoVista() {
+  return (
+    <div className="flex h-full items-center justify-center bg-bg-base">
+      <span className="h-8 w-8 animate-spin rounded-full border-4 border-purple-400/20 border-t-purple-400" />
+    </div>
+  )
+}
+
+function Lazy({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<CargandoVista />}>{children}</Suspense>
+}
+
+function RoleRoute({ rol, children }: { rol: Rol; children: ReactNode }) {
+  const session = getSession()
+  if (!session) return <Navigate to="/login" replace />
+  if (session.rol !== rol) return <Navigate to={homeFor(session.rol)} replace />
+  return <Lazy>{children}</Lazy>
+}
 
 function GestorRoute({ children }: { children: ReactNode }) {
-  const role = window.localStorage.getItem("bancox-role")
-  const token = window.localStorage.getItem("bancox-session-token")
-  if (!token || role !== "GESTOR") {
-    return <Navigate to="/login" replace />
-  }
-  return children
+  return <RoleRoute rol="GESTOR">{children}</RoleRoute>
 }
 
 function UsuarioRoute({ children }: { children: ReactNode }) {
-  const role = window.localStorage.getItem("bancox-role")
-  const token = window.localStorage.getItem("bancox-session-token")
-  if (!token || (role !== "GESTOR" && role !== "CLIENTE")) {
-    return <Navigate to="/login" replace />
-  }
-  return children
+  return <RoleRoute rol="CLIENTE">{children}</RoleRoute>
+}
+
+function HomeRedirect() {
+  const session = getSession()
+  return <Navigate to={session ? homeFor(session.rol) : "/login"} replace />
 }
 
 export const router = createBrowserRouter([
-  { path: "/", element: <Navigate to="/login" replace /> },
+  { path: "/", Component: HomeRedirect },
   { path: "/login", Component: LoginView },
-  { path: "/recuperar-contrasena", Component: PasswordRecoveryView },
+  { path: "/recuperar-contrasena", element: <Lazy><PasswordRecoveryView /></Lazy> },
   { path: "/inicio", element: <UsuarioRoute><SessionLogoutView /></UsuarioRoute> },
   { path: "/cuentas/nueva", element: <UsuarioRoute><ClientView /></UsuarioRoute> },
   { path: "/cuentas/saldo", element: <UsuarioRoute><BalanceInquiryView /></UsuarioRoute> },
@@ -71,5 +87,5 @@ export const router = createBrowserRouter([
   { path: "/gestor/cuentas/desactivar", element: <GestorRoute><AccountDeactivationView /></GestorRoute> },
   { path: "/gestor/reportes/actividad", element: <GestorRoute><ActivityReportView /></GestorRoute> },
   { path: "/gestor/tarjetas/solicitudes", element: <GestorRoute><CardRequestsView /></GestorRoute> },
-  { path: "*", element: <Navigate to="/login" replace /> },
+  { path: "*", Component: HomeRedirect },
 ])

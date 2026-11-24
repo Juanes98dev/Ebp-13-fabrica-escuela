@@ -6,6 +6,6 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CodigoRecuperacionRepository extends JpaRepository<CodigoRecuperacion, Long> {
-    Optional<CodigoRecuperacion> findTopByCorreoOrderByExpiraEnDesc(String correo);
+    Optional<CodigoRecuperacion> findTopByCorreoOrderByCreadoEnDesc(String correo);
     List<CodigoRecuperacion> findByCorreoAndCreadoEnAfter(String correo, LocalDateTime desde);
 }

@@ -1,202 +1,118 @@
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { Link, useSearchParams } from "react-router"
 import Sidebar from "../shared/Sidebar"
-import { apiRequest } from "../shared/api"
+import { ApiError, apiRequest, errorMessage } from "../shared/api"
+import { fmtFechaLarga } from "../shared/helpers"
+import { getSession, initials } from "../shared/session"
+import { ESTADOS_VIGENTES } from "../shared/tarjetas"
+import type { ClienteApi, CuentaApi, TarjetaApi } from "../shared/types"
 import {
   IcoAlert,
   IcoCheck,
   IcoChevron,
-  IcoClientes,
   IcoClock,
   IcoClose,
-  IcoConfig,
-  IcoCuentas,
-  IcoDash,
   IcoDatabase,
   IcoInfo,
-  IcoProductos,
-  IcoReportes,
   IcoSearch,
   IcoShield,
-  IcoTransfer,
   IcoUserMinus,
 } from "../shared/icons"
 
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-]
-
-type Customer = {
-  id: string
-  document: string
-  name: string
-  initials: string
-  status: "Activo" | "Inactivo"
-  activeAccounts: number
-  totalAccounts: number
-  movements: number
-  lastMovement: string
-  email: string
-  customerSince: string
-}
-
-const INITIAL_CUSTOMERS: Customer[] = [
-  {
-    id: "BX-C88-21470369",
-    document: "8821470369",
-    name: "Diego Alejandro Ríos",
-    initials: "DR",
-    status: "Activo",
-    activeAccounts: 0,
-    totalAccounts: 2,
-    movements: 148,
-    lastMovement: "28 de enero de 2026",
-    email: "diego.rios@email.com",
-    customerSince: "17 de junio de 2020",
-  },
-  {
-    id: "BX-C10-20304050",
-    document: "1020304050",
-    name: "Laura Sofía Mendoza",
-    initials: "LM",
-    status: "Activo",
-    activeAccounts: 2,
-    totalAccounts: 2,
-    movements: 326,
-    lastMovement: "9 de febrero de 2026",
-    email: "laura.mendoza@email.com",
-    customerSince: "12 de febrero de 2021",
-  },
-  {
-    id: "BX-C52-78903416",
-    document: "5278903416",
-    name: "Ana Lucía Torres",
-    initials: "AT",
-    status: "Inactivo",
-    activeAccounts: 0,
-    totalAccounts: 1,
-    movements: 76,
-    lastMovement: "4 de diciembre de 2025",
-    email: "ana.torres@email.com",
-    customerSince: "20 de marzo de 2023",
-  },
-]
-
 type ViewState = "idle" | "loading" | "found" | "not-found"
 
-type ApiCustomer = {
-  id: number
-  idCliente: string
-  cedula: string
-  primerNombre: string
-  segundoNombre?: string
-  primerApellido: string
-  segundoApellido?: string
-  email?: string
-  activo: boolean
+type Seleccion = {
+  cliente: ClienteApi
+  cuentas: CuentaApi[]
+  tarjetasVigentes: number
 }
 
+const PATRON_CRITERIO = /^[A-Za-z0-9-]{6,30}$/
+
 export default function CustomerDeactivationView() {
-  const [activeNav, setActiveNav] = useState("clientes")
-  const [customers, setCustomers] = useState(INITIAL_CUSTOMERS)
-  const [query, setQuery] = useState("")
+  const [searchParams, setSearchParams] = useSearchParams()
+  const cedulaParam = searchParams.get("cedula")
+  const [query, setQuery] = useState(cedulaParam ?? "")
   const [searchError, setSearchError] = useState("")
   const [viewState, setViewState] = useState<ViewState>("idle")
-  const [selectedId, setSelectedId] = useState("")
+  const [seleccion, setSeleccion] = useState<Seleccion | null>(null)
   const [lastQuery, setLastQuery] = useState("")
   const [confirmationOpen, setConfirmationOpen] = useState(false)
   const [confirmationAccepted, setConfirmationAccepted] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [blockedMessage, setBlockedMessage] = useState("")
   const [cancelledMessage, setCancelledMessage] = useState("")
   const [successData, setSuccessData] = useState<{
     name: string
     timestamp: string
-    reference: string
   } | null>(null)
+  const gestor = getSession()?.nombre ?? "Gestor"
 
-  const selectedCustomer =
-    customers.find((customer) => customer.id === selectedId) ?? null
-
-  async function handleSearch(event: React.FormEvent) {
-    event.preventDefault()
-    const value = query.trim()
-
-    if (!/^[A-Za-z0-9-]{6,20}$/.test(value)) {
-      setSearchError("Ingrese una cédula o identificador válido")
-      setViewState("idle")
-      return
-    }
-
+  const buscar = useCallback(async (valor: string) => {
     setSearchError("")
     setBlockedMessage("")
     setCancelledMessage("")
     setSuccessData(null)
     setViewState("loading")
-    setLastQuery(value)
-
+    setLastQuery(valor)
     try {
-      const customer = await apiRequest<ApiCustomer>(`/api/clientes/buscar/${encodeURIComponent(value)}`)
-      const name = [customer.primerNombre, customer.segundoNombre, customer.primerApellido, customer.segundoApellido].filter(Boolean).join(" ")
-      const mapped: Customer = {
-        id: String(customer.id),
-        document: customer.cedula,
-        name,
-        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
-        status: customer.activo ? "Activo" : "Inactivo",
-        activeAccounts: 0,
-        totalAccounts: 0,
-        movements: 0,
-        lastMovement: "No disponible",
-        email: customer.email ?? "",
-        customerSince: "No disponible",
-      }
-      setCustomers((current) => [
-        mapped,
-        ...current.filter((item) => item.id !== mapped.id),
+      const cliente = await apiRequest<ClienteApi>(`/api/clientes/buscar/${encodeURIComponent(valor)}`)
+      const [cuentas, tarjetas] = await Promise.all([
+        apiRequest<CuentaApi[]>(`/api/cuentas/cliente/${cliente.id}`),
+        apiRequest<TarjetaApi[]>(`/api/tarjetas?clienteId=${cliente.id}`),
       ])
-      setSelectedId(mapped.id)
+      setSeleccion({
+        cliente,
+        cuentas,
+        tarjetasVigentes: tarjetas.filter((t) => ESTADOS_VIGENTES.includes(t.estado)).length,
+      })
       setViewState("found")
-    } catch {
-      setSelectedId("")
+    } catch (caught) {
+      setSeleccion(null)
       setViewState("not-found")
+      if (!(caught instanceof ApiError && caught.status === 404)) {
+        setSearchError(errorMessage(caught, "No fue posible consultar el cliente"))
+      }
     }
-  }
+  }, [])
 
-  function selectExample(customer: Customer) {
-    setQuery(customer.id)
-    setSearchError("")
-    setBlockedMessage("")
-    setCancelledMessage("")
-    setSuccessData(null)
-    setSelectedId(customer.id)
-    setViewState("found")
+  useEffect(() => {
+    const valor = cedulaParam?.trim().replace(/\s+/g, "") ?? ""
+    if (PATRON_CRITERIO.test(valor)) void buscar(valor)
+  }, [cedulaParam, buscar])
+
+  function handleSearch(event: React.FormEvent) {
+    event.preventDefault()
+    const value = query.trim().replace(/\s+/g, "")
+    if (!PATRON_CRITERIO.test(value)) {
+      setSearchError("Ingrese una cédula o identificador válido")
+      return
+    }
+    if (value === cedulaParam) void buscar(value)
+    else setSearchParams({ cedula: value })
   }
 
   function resetSearch() {
     setQuery("")
     setSearchError("")
     setViewState("idle")
-    setSelectedId("")
+    setSeleccion(null)
     setLastQuery("")
     setBlockedMessage("")
     setCancelledMessage("")
     setSuccessData(null)
+    setSearchParams({})
   }
 
+  const cuentasActivas = seleccion?.cuentas.filter((cuenta) => cuenta.activa) ?? []
+
   function requestDeactivation() {
-    if (!selectedCustomer || selectedCustomer.status === "Inactivo") return
+    if (!seleccion || !seleccion.cliente.activo) return
     setCancelledMessage("")
     setSuccessData(null)
 
-    if (selectedCustomer.activeAccounts > 0) {
-      setBlockedMessage(
-        "No es posible desactivar un cliente con cuentas activas",
-      )
+    if (cuentasActivas.length > 0) {
+      setBlockedMessage("No es posible desactivar un cliente con cuentas activas")
       return
     }
 
@@ -206,6 +122,7 @@ export default function CustomerDeactivationView() {
   }
 
   function cancelDeactivation() {
+    if (processing) return
     setConfirmationOpen(false)
     setConfirmationAccepted(false)
     setCancelledMessage(
@@ -214,44 +131,31 @@ export default function CustomerDeactivationView() {
   }
 
   async function confirmDeactivation() {
-    if (!selectedCustomer) return
+    if (!seleccion) return
+    setProcessing(true)
     try {
-      await apiRequest(`/api/clientes/${selectedCustomer.id}/desactivar`, { method: "PATCH" })
-      const now = new Date()
+      const actualizado = await apiRequest<ClienteApi>(`/api/clientes/${seleccion.cliente.id}/desactivar`, { method: "PATCH" })
       const timestamp = new Intl.DateTimeFormat("es-CO", {
         dateStyle: "long",
         timeStyle: "short",
-      }).format(now)
-      const reference = `AUD-${now.getFullYear()}-${String(now.getTime()).slice(-6)}`
-      setCustomers((current) =>
-        current.map((customer) =>
-          customer.id === selectedCustomer.id
-            ? { ...customer, status: "Inactivo" }
-            : customer,
-        ),
-      )
-      setConfirmationOpen(false)
-      setConfirmationAccepted(false)
+      }).format(new Date())
+      setSeleccion({ ...seleccion, cliente: actualizado })
       setCancelledMessage("")
-      setSuccessData({ name: selectedCustomer.name, timestamp, reference })
+      setSuccessData({ name: actualizado.nombreCompleto, timestamp })
     } catch (error) {
-      setBlockedMessage(error instanceof Error ? error.message : "No fue posible desactivar el cliente")
+      setBlockedMessage(errorMessage(error, "No fue posible desactivar el cliente"))
+    } finally {
+      setProcessing(false)
       setConfirmationOpen(false)
       setConfirmationAccepted(false)
     }
   }
 
+  const cliente = seleccion?.cliente
+
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={MANAGER_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel="Gestor Rodríguez"
-        userSub="Gestor Bancario"
-        userInitials="GR"
-        badge="Plataforma Gestión"
-      />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-bg-base/95 px-8 py-5 backdrop-blur">
@@ -329,7 +233,7 @@ export default function CustomerDeactivationView() {
                         ? "deactivation-search-error"
                         : "deactivation-search-help"
                     }
-                    placeholder="Ej: BX-C88-21470369"
+                    placeholder="Ej: 1020304050 o BX-..."
                     autoComplete="off"
                     className={`w-full rounded-xl border bg-purple-400/5 py-3 pl-11 pr-4 text-sm text-text-primary outline-none transition-all focus:ring-4 focus:ring-purple-400/10 ${
                       searchError
@@ -400,11 +304,11 @@ export default function CustomerDeactivationView() {
                 <IcoAlert />
               </span>
               <h2 className="font-display text-lg font-bold text-text-primary">
-                Cliente no encontrado
+                {searchError ? "No fue posible completar la consulta" : "Cliente no encontrado"}
               </h2>
               <p className="mt-1 text-sm text-text-muted">
-                No existe un cliente asociado a “{lastQuery}”. Verifica el
-                identificador e intenta nuevamente.
+                {searchError ||
+                  `No existe un cliente asociado a “${lastQuery}”. Verifica el identificador e intenta nuevamente.`}
               </p>
               <button
                 type="button"
@@ -416,40 +320,40 @@ export default function CustomerDeactivationView() {
             </div>
           )}
 
-          {viewState === "found" && selectedCustomer && (
+          {viewState === "found" && seleccion && cliente && (
             <div className="flex flex-col gap-5">
               <section className="overflow-hidden rounded-2xl border border-border bg-sidebar">
                 <div className="flex flex-col gap-5 border-b border-border bg-gradient-to-r from-purple-600/15 to-transparent p-6 sm:flex-row sm:items-center">
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-accent font-display text-lg font-bold text-white">
-                    {selectedCustomer.initials}
+                    {initials(cliente.nombreCompleto)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <h2 className="font-display text-xl font-bold text-text-primary">
-                        {selectedCustomer.name}
+                        {cliente.nombreCompleto}
                       </h2>
                       <span
                         className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                          selectedCustomer.status === "Activo"
+                          cliente.activo
                             ? "border-success/25 bg-success/10 text-emerald-400"
                             : "border-border bg-purple-400/5 text-text-muted"
                         }`}
                       >
                         <span
                           className={`h-1.5 w-1.5 rounded-full ${
-                            selectedCustomer.status === "Activo"
+                            cliente.activo
                               ? "bg-success"
                               : "bg-text-muted"
                           }`}
                         />
-                        {selectedCustomer.status}
+                        {cliente.activo ? "Activo" : "Inactivo"}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
-                      <span>CC {selectedCustomer.document}</span>
-                      <span>ID {selectedCustomer.id}</span>
+                      <span data-i18n-ignore>CC {cliente.cedula}</span>
+                      <span data-i18n-ignore>ID {cliente.idCliente}</span>
                       <span>
-                        Vinculado desde {selectedCustomer.customerSince}
+                        Vinculado desde {fmtFechaLarga(cliente.fechaRegistro)}
                       </span>
                     </div>
                   </div>
@@ -466,19 +370,19 @@ export default function CustomerDeactivationView() {
                   {[
                     {
                       label: "Correo registrado",
-                      value: selectedCustomer.email,
+                      value: cliente.email ?? "No registrado",
                     },
                     {
                       label: "Cuentas activas",
-                      value: `${selectedCustomer.activeAccounts} de ${selectedCustomer.totalAccounts}`,
+                      value: `${cuentasActivas.length} de ${seleccion.cuentas.length}`,
                     },
                     {
-                      label: "Movimientos conservados",
-                      value: `${selectedCustomer.movements} registros`,
+                      label: "Tarjetas vigentes",
+                      value: String(seleccion.tarjetasVigentes),
                     },
                     {
-                      label: "Último movimiento",
-                      value: selectedCustomer.lastMovement,
+                      label: "Teléfono",
+                      value: cliente.telefono ?? "No registrado",
                     },
                   ].map((item) => (
                     <div key={item.label} className="bg-sidebar p-5">
@@ -505,10 +409,23 @@ export default function CustomerDeactivationView() {
                     <div className="text-sm font-semibold text-red-300">
                       {blockedMessage}
                     </div>
-                    <p className="mt-1 text-xs leading-relaxed text-red-200/70">
-                      Cierra o inactiva todas las cuentas asociadas antes de
-                      volver a intentar la operación.
-                    </p>
+                    {cuentasActivas.length > 0 && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        <p className="text-xs leading-relaxed text-red-200/70">
+                          Inactiva primero las cuentas asociadas:
+                        </p>
+                        {cuentasActivas.map((cuenta) => (
+                          <Link
+                            key={cuenta.numeroCuenta}
+                            to={`/gestor/cuentas/desactivar?numero=${encodeURIComponent(cuenta.numeroCuenta)}`}
+                            className="text-xs font-semibold text-red-200 hover:underline"
+                            data-i18n-ignore
+                          >
+                            {cuenta.numeroCuenta} →
+                          </Link>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -573,15 +490,15 @@ export default function CustomerDeactivationView() {
                         Gestor responsable
                       </div>
                       <div className="mt-1 text-xs font-semibold text-text-secondary">
-                        Gestor Rodríguez
+                        {gestor}
                       </div>
                     </div>
                     <div className="bg-sidebar px-5 py-3">
                       <div className="text-xs text-text-muted">
-                        Referencia de auditoría
+                        Sesiones del cliente
                       </div>
                       <div className="mt-1 text-xs font-semibold text-purple-300">
-                        {successData.reference}
+                        Cerradas automáticamente
                       </div>
                     </div>
                   </div>
@@ -602,7 +519,7 @@ export default function CustomerDeactivationView() {
                     <div className="flex items-start gap-3 rounded-xl border border-border bg-purple-400/5 p-4">
                       <span
                         className={`mt-0.5 ${
-                          selectedCustomer.status === "Activo"
+                          cliente.activo
                             ? "text-emerald-400"
                             : "text-text-muted"
                         }`}
@@ -614,7 +531,7 @@ export default function CustomerDeactivationView() {
                           Estado del cliente
                         </div>
                         <div className="mt-1 text-xs text-text-muted">
-                          {selectedCustomer.status === "Activo"
+                          {cliente.activo
                             ? "Cliente activo verificado"
                             : "El cliente ya está inactivo"}
                         </div>
@@ -623,12 +540,12 @@ export default function CustomerDeactivationView() {
                     <div className="flex items-start gap-3 rounded-xl border border-border bg-purple-400/5 p-4">
                       <span
                         className={`mt-0.5 ${
-                          selectedCustomer.activeAccounts === 0
+                          cuentasActivas.length === 0
                             ? "text-emerald-400"
                             : "text-amber-400"
                         }`}
                       >
-                        {selectedCustomer.activeAccounts === 0 ? (
+                        {cuentasActivas.length === 0 ? (
                           <IcoCheck />
                         ) : (
                           <IcoAlert />
@@ -639,9 +556,9 @@ export default function CustomerDeactivationView() {
                           Productos asociados
                         </div>
                         <div className="mt-1 text-xs text-text-muted">
-                          {selectedCustomer.activeAccounts === 0
+                          {cuentasActivas.length === 0
                             ? "Sin cuentas activas"
-                            : `${selectedCustomer.activeAccounts} cuentas requieren gestión`}
+                            : `${cuentasActivas.length} ${cuentasActivas.length === 1 ? "cuenta requiere" : "cuentas requieren"} gestión`}
                         </div>
                       </div>
                     </div>
@@ -654,8 +571,7 @@ export default function CustomerDeactivationView() {
                           Trazabilidad
                         </div>
                         <div className="mt-1 text-xs text-text-muted">
-                          {selectedCustomer.movements} movimientos se
-                          conservarán
+                          Datos e historial de movimientos se conservan
                         </div>
                       </div>
                     </div>
@@ -672,11 +588,11 @@ export default function CustomerDeactivationView() {
                     <button
                       type="button"
                       onClick={requestDeactivation}
-                      disabled={selectedCustomer.status === "Inactivo"}
+                      disabled={!cliente.activo}
                       className="flex items-center justify-center gap-2 rounded-xl border border-danger/40 bg-danger/15 px-5 py-2.5 text-sm font-semibold text-red-300 transition-all hover:bg-danger/25 disabled:cursor-not-allowed disabled:border-border disabled:bg-purple-400/5 disabled:text-text-muted"
                     >
                       <IcoUserMinus />
-                      {selectedCustomer.status === "Inactivo"
+                      {!cliente.activo
                         ? "Cliente ya inactivo"
                         : "Desactivar cliente"}
                     </button>
@@ -688,7 +604,7 @@ export default function CustomerDeactivationView() {
         </div>
       </main>
 
-      {confirmationOpen && selectedCustomer && (
+      {confirmationOpen && cliente && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
           role="dialog"
@@ -710,7 +626,7 @@ export default function CustomerDeactivationView() {
                 <p className="mt-1 text-sm leading-relaxed text-text-muted">
                   Esta acción retirará inmediatamente el acceso de{" "}
                   <strong className="font-semibold text-text-secondary">
-                    {selectedCustomer.name}
+                    {cliente.nombreCompleto}
                   </strong>
                   .
                 </p>
@@ -728,8 +644,8 @@ export default function CustomerDeactivationView() {
               <div className="mb-5 rounded-xl border border-border bg-purple-400/5 p-4">
                 <div className="mb-3 flex items-center justify-between text-xs">
                   <span className="text-text-muted">Identificador</span>
-                  <span className="font-semibold text-text-secondary">
-                    {selectedCustomer.id}
+                  <span className="font-semibold text-text-secondary" data-i18n-ignore>
+                    {cliente.idCliente}
                   </span>
                 </div>
                 <div className="mb-3 flex items-center justify-between text-xs">
@@ -770,11 +686,11 @@ export default function CustomerDeactivationView() {
                 <button
                   type="button"
                   onClick={confirmDeactivation}
-                  disabled={!confirmationAccepted}
+                  disabled={!confirmationAccepted || processing}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger py-2.5 text-sm font-semibold text-white shadow-lg shadow-danger/20 hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-danger/35 disabled:text-white/50 disabled:shadow-none"
                 >
                   <IcoUserMinus />
-                  Sí, desactivar
+                  {processing ? "Desactivando..." : "Sí, desactivar"}
                 </button>
               </div>
             </div>

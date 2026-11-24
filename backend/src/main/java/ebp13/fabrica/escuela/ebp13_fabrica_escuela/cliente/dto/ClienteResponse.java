@@ -1,6 +1,7 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public class ClienteResponse {
 
@@ -19,8 +20,26 @@ public class ClienteResponse {
     private String ciudad;
     private String departamento;
     private boolean activo;
+    private String nombreCompleto;
+    private LocalDateTime fechaRegistro;
 
     public ClienteResponse() {
+    }
+
+    public String getNombreCompleto() {
+        return nombreCompleto;
+    }
+
+    public void setNombreCompleto(String nombreCompleto) {
+        this.nombreCompleto = nombreCompleto;
+    }
+
+    public LocalDateTime getFechaRegistro() {
+        return fechaRegistro;
+    }
+
+    public void setFechaRegistro(LocalDateTime fechaRegistro) {
+        this.fechaRegistro = fechaRegistro;
     }
 
     public Long getId() {

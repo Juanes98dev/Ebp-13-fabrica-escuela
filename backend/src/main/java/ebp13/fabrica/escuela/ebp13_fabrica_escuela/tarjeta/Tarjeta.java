@@ -4,6 +4,7 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.Cliente;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.Cuenta;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 public class Tarjeta {
@@ -19,7 +20,7 @@ public class Tarjeta {
     private TipoTarjeta tipo;
 
     @Column(nullable = false)
-    private String estado = "pendiente";
+    private String estado = EstadoTarjeta.PENDIENTE;
 
     private String bloqueadaPor;
     private String motivoRechazo;
@@ -33,6 +34,20 @@ public class Tarjeta {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cuenta_id")
     private Cuenta cuenta;
+
+    private LocalDateTime fechaSolicitud;
+    private LocalDateTime fechaResolucion;
+
+    @PrePersist
+    private void alCrear() {
+        if (fechaSolicitud == null) {
+            fechaSolicitud = LocalDateTime.now();
+        }
+    }
+
+    public LocalDateTime getFechaSolicitud() { return fechaSolicitud; }
+    public LocalDateTime getFechaResolucion() { return fechaResolucion; }
+    public void setFechaResolucion(LocalDateTime fechaResolucion) { this.fechaResolucion = fechaResolucion; }
 
     public Long getId() { return id; }
     public String getNumero() { return numero; }

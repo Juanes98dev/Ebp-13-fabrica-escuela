@@ -1,35 +1,29 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router";
 import Sidebar from "../shared/Sidebar";
-import { apiRequest } from "../shared/api";
+import { ApiError, apiRequest } from "../shared/api";
 import {
   IcoAlert,
   IcoCheck,
   IcoChevron,
   IcoClock,
   IcoCuentas,
-  IcoDash,
-  IcoExtractos,
-  IcoInfo,
-  IcoInversiones,
-  IcoPagos,
-  IcoPrestamos,
   IcoSearch,
   IcoShield,
-  IcoTransfer,
 } from "../shared/icons";
-import { CLIENTE_ACTIVO } from "../shared/data";
+import {
+  etiquetaTipoCuenta,
+  etiquetaTransaccion,
+  fmtFecha,
+  normalizarNumeroCuenta,
+  PATRON_CUENTA,
+} from "../shared/helpers";
+import { useMisCuentas } from "../shared/hooks";
+import type { CuentaApi, TransaccionApi } from "../shared/types";
 
-const CLIENT_NAV = [
-  { id: "inicio", label: "Inicio", icon: <IcoDash /> },
-  { id: "cuentas", label: "Mis Cuentas", icon: <IcoCuentas /> },
-  { id: "transferencias", label: "Transferencias", icon: <IcoTransfer /> },
-  { id: "pagos", label: "Pagos", icon: <IcoPagos /> },
-  { id: "prestamos", label: "Préstamos", icon: <IcoPrestamos /> },
-  { id: "inversiones", label: "Inversiones", icon: <IcoInversiones /> },
-  { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
-];
+type QueryStatus = "idle" | "loading" | "success" | "forbidden" | "not-found" | "inactive" | "error";
 
-type OwnAccount = {
+type BalanceResult = {
   number: string
   type: string
   balance: number
@@ -37,61 +31,36 @@ type OwnAccount = {
   lastTransactionDate: string
 }
 
-const OWN_ACCOUNTS: OwnAccount[] = [];
-
-const FOREIGN_ACCOUNT = "301-002-4419-88";
-type QueryStatus = "idle" | "loading" | "success" | "forbidden" | "not-found";
-
-type ApiAccount = {
-  numeroCuenta: string;
-  tipo: "AHORROS" | "CORRIENTE";
-  saldo: number;
-  activa: boolean;
-};
-
 export default function BalanceInquiryView() {
-  const [activeNav, setActiveNav] = useState("cuentas");
+  const navigate = useNavigate();
+  const { cuentas, loading: loadingAccounts, error: accountsError } = useMisCuentas();
   const [accountNumber, setAccountNumber] = useState("");
   const [status, setStatus] = useState<QueryStatus>("idle");
-  const [selectedAccount, setSelectedAccount] = useState<(typeof OWN_ACCOUNTS)[number] | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<BalanceResult | null>(null);
   const [consultedAt, setConsultedAt] = useState("");
   const [validationError, setValidationError] = useState("");
-  const [accounts, setAccounts] = useState<(typeof OWN_ACCOUNTS)[number][]>(OWN_ACCOUNTS);
+  const [errorText, setErrorText] = useState("");
+  const accounts = cuentas.filter((cuenta) => cuenta.activa);
 
-  useEffect(() => {
-    const clienteId = window.localStorage.getItem("bancox-user-id");
-    if (!clienteId) return;
-    apiRequest<ApiAccount[]>(`/api/cuentas/cliente/${clienteId}`)
-      .then((loaded) => {
-        setAccounts(loaded.filter((account) => account.activa).map((account) => ({
-          number: account.numeroCuenta,
-          type: account.tipo === "AHORROS" ? "Cuenta de ahorros" : "Cuenta corriente",
-          balance: Number(account.saldo),
-          lastTransaction: "Consulta disponible",
-          lastTransactionDate: new Date().toLocaleString("es-CO"),
-        })));
-      })
-      .catch(() => undefined);
-  }, []);
-
-  function selectOwnAccount(account: (typeof OWN_ACCOUNTS)[number]) {
-    setAccountNumber(account.number);
+  function selectOwnAccount(account: CuentaApi) {
+    setAccountNumber(account.numeroCuenta);
     setSelectedAccount(null);
     setStatus("idle");
     setValidationError("");
+    void consultBalance(undefined, account.numeroCuenta);
   }
 
   function handleChange(value: string) {
-    setAccountNumber(value);
+    setAccountNumber(normalizarNumeroCuenta(value));
     setStatus("idle");
     setSelectedAccount(null);
     setValidationError("");
   }
 
-  async function consultBalance(event?: React.FormEvent) {
+  async function consultBalance(event?: React.FormEvent, numero?: string) {
     event?.preventDefault();
-    const normalized = accountNumber.trim();
-    if (!/^\d{3}-\d{3}-\d{4}-\d{2}$/.test(normalized)) {
+    const normalized = (numero ?? accountNumber).trim();
+    if (!PATRON_CUENTA.test(normalized)) {
       setValidationError("Ingresa un número de cuenta válido");
       setStatus("idle");
       return;
@@ -100,26 +69,40 @@ export default function BalanceInquiryView() {
     setValidationError("");
     setStatus("loading");
     try {
-      const account = await apiRequest<ApiAccount>(`/api/cuentas/${normalized}`);
-      const ownAccount = accounts.find((item) => item.number === normalized);
-      if (!ownAccount) {
-        setStatus("forbidden");
-      } else if (!account.activa) {
-        setStatus("not-found");
-      } else {
-        setSelectedAccount({ ...ownAccount, balance: Number(account.saldo) });
-        setConsultedAt(new Date().toLocaleString("es-CO", {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        }));
-        setStatus("success");
+      const account = await apiRequest<CuentaApi>(`/api/cuentas/${encodeURIComponent(normalized)}`);
+      if (!account.activa) {
+        setStatus("inactive");
+        return;
       }
-    } catch {
+      const movimientos = await apiRequest<TransaccionApi[]>(
+        `/api/transacciones/cuenta/${encodeURIComponent(normalized)}`,
+      );
+      const ultimo = movimientos[0];
+      setSelectedAccount({
+        number: account.numeroCuenta,
+        type: etiquetaTipoCuenta(account.tipo),
+        balance: Number(account.saldo),
+        lastTransaction: ultimo
+          ? `${etiquetaTransaccion(ultimo.tipo)} · ${ultimo.referencia}`
+          : "Sin movimientos registrados",
+        lastTransactionDate: ultimo ? fmtFecha(ultimo.fecha) : "",
+      });
+      setConsultedAt(new Date().toLocaleString("es-CO", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }));
+      setStatus("success");
+    } catch (error) {
       setSelectedAccount(null);
-      setStatus("not-found");
+      if (error instanceof ApiError && error.status === 403) setStatus("forbidden");
+      else if (error instanceof ApiError && error.status === 404) setStatus("not-found");
+      else {
+        setErrorText(error instanceof Error ? error.message : "No fue posible consultar el saldo");
+        setStatus("error");
+      }
     }
   }
 
@@ -132,15 +115,7 @@ export default function BalanceInquiryView() {
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={CLIENT_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel={CLIENTE_ACTIVO.nombre}
-        userSub={`CC ${CLIENTE_ACTIVO.cedula}`}
-        userInitials={CLIENTE_ACTIVO.iniciales}
-        badge="Banca Personal"
-      />
+      <Sidebar variant="cliente" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10 bg-bg-base/95 border-b border-border backdrop-blur">
@@ -171,13 +146,21 @@ export default function BalanceInquiryView() {
                   </div>
                 </div>
 
+                {loadingAccounts && <p className="text-sm text-text-muted mb-5">Cargando tus cuentas...</p>}
+                {accountsError && <p className="flex items-center gap-1.5 text-sm text-red-400 mb-5"><IcoAlert />{accountsError}</p>}
+                {!loadingAccounts && !accountsError && accounts.length === 0 && (
+                  <div className="rounded-xl p-4 mb-5 bg-purple-400/5 border border-border text-sm text-text-muted">
+                    No tienes cuentas activas.{" "}
+                    <button type="button" onClick={() => navigate("/cuentas/nueva")} className="font-semibold text-purple-300 hover:text-purple-200">Abrir una cuenta</button>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
                   {accounts.map((account) => {
-                    const selected = accountNumber === account.number;
+                    const selected = accountNumber === account.numeroCuenta;
                     return (
                       <button
                         type="button"
-                        key={account.number}
+                        key={account.numeroCuenta}
                         onClick={() => selectOwnAccount(account)}
                         className={`relative p-4 rounded-xl text-left border transition-all ${selected ? "bg-purple-600/15 border-purple-400/50 ring-4 ring-purple-400/5" : "bg-purple-400/5 border-border hover:border-purple-400/30"}`}
                       >
@@ -185,8 +168,8 @@ export default function BalanceInquiryView() {
                           <span className={`flex items-center justify-center w-9 h-9 rounded-lg ${selected ? "bg-purple-600/25 text-purple-200" : "bg-purple-400/10 text-text-muted"}`}><IcoCuentas /></span>
                           <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400"><span className="w-1.5 h-1.5 rounded-full bg-success" />Activa</span>
                         </div>
-                        <div className="text-sm font-semibold text-text-secondary">{account.type}</div>
-                        <div className="text-xs text-text-muted mt-1">{account.number}</div>
+                        <div className="text-sm font-semibold text-text-secondary">{etiquetaTipoCuenta(account.tipo)}</div>
+                        <div className="text-xs text-text-muted mt-1" data-i18n-ignore>{account.numeroCuenta}</div>
                         <div className={`absolute top-4 right-4 flex items-center justify-center w-5 h-5 rounded-full border-2 ${selected ? "bg-purple-600 border-purple-500" : "border-purple-400/25"}`}>
                           {selected && <span className="w-2 h-2 rounded-full bg-white" />}
                         </div>
@@ -248,7 +231,8 @@ export default function BalanceInquiryView() {
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-semibold text-text-secondary">{selectedAccount.type}</div>
-                        <div className="text-xs text-text-muted mt-1">{selectedAccount.number}</div>
+                        <div className="text-xs text-text-muted mt-1" data-i18n-ignore>{selectedAccount.number}</div>
+                        <button type="button" onClick={() => navigate(`/cuentas/historial?cuenta=${encodeURIComponent(selectedAccount.number)}`)} className="block ml-auto text-xs font-semibold text-purple-300 hover:text-purple-200 mt-2">Ver movimientos</button>
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-success/10 text-emerald-400 border border-success/20 mt-3">
                           <span className="w-1.5 h-1.5 rounded-full bg-success" />Cuenta activa
                         </span>
@@ -270,16 +254,28 @@ export default function BalanceInquiryView() {
                 </section>
               )}
 
-              {(status === "forbidden" || status === "not-found") && (
+              {(status === "forbidden" || status === "not-found" || status === "inactive" || status === "error") && (
                 <div role="alert" className="rounded-2xl py-9 px-6 flex flex-col items-center text-center bg-sidebar border border-danger/25">
                   <div className="flex items-center justify-center w-12 h-12 rounded-full mb-4 bg-danger/10 text-red-400">
                     {status === "forbidden" ? <IcoShield /> : <IcoAlert />}
                   </div>
                   <h2 className="text-lg font-bold text-text-primary font-display">
-                    {status === "forbidden" ? "No tiene permisos para consultar esta cuenta" : "Cuenta no encontrada"}
+                    {status === "forbidden"
+                      ? "No tiene permisos para consultar esta cuenta"
+                      : status === "inactive"
+                        ? "La cuenta está inactiva"
+                        : status === "error"
+                          ? "No fue posible consultar el saldo"
+                          : "Cuenta no encontrada"}
                   </h2>
                   <p className="text-sm text-text-muted mt-1 max-w-md">
-                    {status === "forbidden" ? "Por seguridad, solo puedes consultar cuentas registradas a tu nombre." : "No encontramos una cuenta asociada al número ingresado. Verifica los datos e intenta nuevamente."}
+                    {status === "forbidden"
+                      ? "Por seguridad, solo puedes consultar cuentas registradas a tu nombre."
+                      : status === "inactive"
+                        ? "Las cuentas inactivas no permiten consultar saldo. Comunícate con tu gestor."
+                        : status === "error"
+                          ? errorText
+                          : "No encontramos una cuenta asociada al número ingresado. Verifica los datos e intenta nuevamente."}
                   </p>
                   <button type="button" onClick={resetQuery} className="mt-5 px-5 py-2.5 rounded-xl text-sm font-semibold text-purple-200 border border-border hover:bg-purple-400/10">Realizar otra consulta</button>
                 </div>

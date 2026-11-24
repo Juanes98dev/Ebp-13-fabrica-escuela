@@ -1,42 +1,23 @@
 import { useMemo, useState } from "react"
 import Sidebar from "../shared/Sidebar"
-import { apiRequest } from "../shared/api"
+import { ApiError, apiDownload, apiRequest, errorMessage } from "../shared/api"
+import { fmtCOP } from "../shared/helpers"
 import {
   IcoAlert,
   IcoCalendar,
   IcoCheck,
   IcoChevron,
-  IcoClientes,
   IcoClock,
-  IcoConfig,
   IcoCuentas,
-  IcoDash,
   IcoDatabase,
   IcoDownload,
   IcoInfo,
-  IcoProductos,
   IcoReportes,
   IcoShield,
   IcoTransfer,
 } from "../shared/icons"
 
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-]
-
-type TransactionType = "Transferencias" | "Retiros" | "Consignaciones" | "Pagos"
-
-type MonthlyActivity = {
-  date: string
-  activeAccounts: number
-  transactions: Record<TransactionType, { count: number; amount: number }>
-}
+type TransactionType = "Transferencias" | "Retiros" | "Consignaciones"
 
 type ReportRow = {
   type: TransactionType
@@ -53,12 +34,14 @@ type Report = {
   activeAccounts: number
   rows: ReportRow[]
   generatedAt: string
+  generatedBy: string
   elapsed: string
 }
 
 type ApiReport = {
   fechaInicial: string
   fechaFinal: string
+  generadoPor: string
   totalTransacciones: number
   montoTotalMovido: number
   cuentasActivas: number
@@ -68,83 +51,19 @@ type ApiReport = {
   }
 }
 
-const ACTIVITY_DATA: MonthlyActivity[] = [
-  {
-    date: "2026-01-15",
-    activeAccounts: 2386,
-    transactions: {
-      Transferencias: { count: 420, amount: 1_286_450_000 },
-      Retiros: { count: 284, amount: 426_800_000 },
-      Consignaciones: { count: 198, amount: 682_340_000 },
-      Pagos: { count: 351, amount: 318_760_000 },
-    },
-  },
-  {
-    date: "2026-02-15",
-    activeAccounts: 2418,
-    transactions: {
-      Transferencias: { count: 438, amount: 1_342_780_000 },
-      Retiros: { count: 301, amount: 458_920_000 },
-      Consignaciones: { count: 207, amount: 714_500_000 },
-      Pagos: { count: 366, amount: 342_180_000 },
-    },
-  },
-  {
-    date: "2026-03-15",
-    activeAccounts: 2451,
-    transactions: {
-      Transferencias: { count: 461, amount: 1_418_320_000 },
-      Retiros: { count: 295, amount: 447_650_000 },
-      Consignaciones: { count: 221, amount: 756_890_000 },
-      Pagos: { count: 389, amount: 361_420_000 },
-    },
-  },
-  {
-    date: "2026-04-15",
-    activeAccounts: 2480,
-    transactions: {
-      Transferencias: { count: 478, amount: 1_496_740_000 },
-      Retiros: { count: 312, amount: 472_360_000 },
-      Consignaciones: { count: 230, amount: 781_250_000 },
-      Pagos: { count: 401, amount: 378_910_000 },
-    },
-  },
-  {
-    date: "2026-05-15",
-    activeAccounts: 2507,
-    transactions: {
-      Transferencias: { count: 492, amount: 1_552_190_000 },
-      Retiros: { count: 325, amount: 491_480_000 },
-      Consignaciones: { count: 243, amount: 806_720_000 },
-      Pagos: { count: 417, amount: 395_640_000 },
-    },
-  },
-  {
-    date: "2026-06-15",
-    activeAccounts: 2542,
-    transactions: {
-      Transferencias: { count: 516, amount: 1_638_450_000 },
-      Retiros: { count: 337, amount: 512_900_000 },
-      Consignaciones: { count: 255, amount: 845_380_000 },
-      Pagos: { count: 432, amount: 414_270_000 },
-    },
-  },
+const TIPOS: { type: TransactionType; clave: string }[] = [
+  { type: "Transferencias", clave: "TRANSFERENCIA" },
+  { type: "Retiros", clave: "RETIRO" },
+  { type: "Consignaciones", clave: "CONSIGNACION" },
 ]
 
 const TYPE_COLORS: Record<TransactionType, string> = {
   Transferencias: "#8b5cf6",
   Retiros: "#f59e0b",
   Consignaciones: "#10b981",
-  Pagos: "#38bdf8",
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(value)
-}
+const formatCurrency = fmtCOP
 
 function formatCompactCurrency(value: number) {
   if (value >= 1_000_000_000)
@@ -161,99 +80,53 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T12:00:00`))
 }
 
-function downloadBlob(content: BlobPart, mime: string, filename: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }))
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+function isoLocal(date: Date) {
+  const mes = String(date.getMonth() + 1).padStart(2, "0")
+  const dia = String(date.getDate()).padStart(2, "0")
+  return `${date.getFullYear()}-${mes}-${dia}`
 }
 
-function buildSimplePdf(report: Report) {
-  const normalize = (value: string) =>
-    value
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[()\\]/g, (character) => `\\${character}`)
-  const lines = [
-    "BANCO X - REPORTE DE ACTIVIDAD FINANCIERA",
-    `Periodo: ${formatDate(report.startDate)} a ${formatDate(report.endDate)}`,
-    `Generado: ${report.generatedAt}`,
-    "",
-    `Total transacciones: ${report.totalTransactions.toLocaleString("es-CO")}`,
-    `Monto total movido: ${formatCurrency(report.totalAmount)}`,
-    `Cuentas activas: ${report.activeAccounts.toLocaleString("es-CO")}`,
-    "",
-    "DETALLE POR TIPO",
-    ...report.rows.map(
-      (row) =>
-        `${row.type}: ${row.count.toLocaleString("es-CO")} operaciones - ${formatCurrency(row.amount)}`,
-    ),
-    "",
-    "Generado por: Gestor Rodriguez",
-  ].map(normalize)
+type Preset = "month" | "quarter" | "year"
 
-  const stream = lines
-    .map(
-      (line, index) =>
-        `${
-          index === 0
-            ? "BT /F1 16 Tf 50 790 Td"
-            : `0 -${index === 1 ? 28 : 22} Td`
-        } (${line}) Tj`,
-    )
-    .join("\n")
-  const contentStream = `${stream}\nET`
-  const objects = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj",
-    `4 0 obj << /Length ${contentStream.length} >> stream\n${contentStream}\nendstream endobj`,
-    "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-  ]
-  let pdf = "%PDF-1.4\n"
-  const offsets = [0]
-  objects.forEach((object) => {
-    offsets.push(pdf.length)
-    pdf += `${object}\n`
-  })
-  const xrefOffset = pdf.length
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`
-  })
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
-  return pdf
+function rangoPreset(preset: Preset): [string, string] {
+  const hoy = new Date()
+  const inicio = new Date(hoy)
+  if (preset === "month") inicio.setDate(1)
+  else if (preset === "quarter") inicio.setMonth(hoy.getMonth() - 3)
+  else inicio.setFullYear(hoy.getFullYear() - 1)
+  return [isoLocal(inicio), isoLocal(hoy)]
 }
 
 export default function ActivityReportView() {
-  const [activeNav, setActiveNav] = useState("reportes")
-  const [startDate, setStartDate] = useState("2026-01-01")
-  const [endDate, setEndDate] = useState("2026-03-31")
+  const [initialStart, initialEnd] = rangoPreset("month")
+  const [startDate, setStartDate] = useState(initialStart)
+  const [endDate, setEndDate] = useState(initialEnd)
   const [error, setError] = useState("")
   const [generating, setGenerating] = useState(false)
   const [report, setReport] = useState<Report | null>(null)
   const [noData, setNoData] = useState(false)
   const [exportFormat, setExportFormat] = useState<"pdf" | "excel">("pdf")
   const [exporting, setExporting] = useState(false)
-  const [exportMessage, setExportMessage] = useState("")
+  const [exportResult, setExportResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const today = isoLocal(new Date())
 
   const maxCount = useMemo(
-    () => Math.max(...(report?.rows.map((row) => row.count) ?? [1])),
+    () => Math.max(1, ...(report?.rows.map((row) => row.count) ?? [])),
     [report],
   )
 
   async function generateReport(event?: React.FormEvent) {
     event?.preventDefault()
-    setExportMessage("")
+    setExportResult(null)
     setNoData(false)
     setReport(null)
 
     if (!startDate || !endDate || startDate > endDate) {
       setError("El rango de fechas no es válido")
+      return
+    }
+    if (endDate > today) {
+      setError("La fecha final no puede ser futura")
       return
     }
 
@@ -272,16 +145,15 @@ export default function ActivityReportView() {
       const data = await apiRequest<ApiReport>(
         `/api/reportes/actividad?fechaInicial=${startDate}&fechaFinal=${endDate}&formato=json`,
       )
-      const rows: ReportRow[] = [
-        { type: "Transferencias", count: data.porTipo.conteo.TRANSFERENCIA ?? 0, amount: Number(data.porTipo.montos.TRANSFERENCIA ?? 0), share: 0 },
-        { type: "Retiros", count: data.porTipo.conteo.RETIRO ?? 0, amount: Number(data.porTipo.montos.RETIRO ?? 0), share: 0 },
-        { type: "Consignaciones", count: data.porTipo.conteo.CONSIGNACION ?? 0, amount: Number(data.porTipo.montos.CONSIGNACION ?? 0), share: 0 },
-        { type: "Pagos", count: data.porTipo.conteo.PAGO ?? 0, amount: Number(data.porTipo.montos.PAGO ?? 0), share: 0 },
-      ].map((row) => ({
-        ...row,
-        share: data.totalTransacciones > 0 ? (row.count / data.totalTransacciones) * 100 : 0,
-      }))
-      setGenerating(false)
+      const rows: ReportRow[] = TIPOS.map(({ type, clave }) => {
+        const count = data.porTipo.conteo[clave] ?? 0
+        return {
+          type,
+          count,
+          amount: Number(data.porTipo.montos[clave] ?? 0),
+          share: data.totalTransacciones > 0 ? (count / data.totalTransacciones) * 100 : 0,
+        }
+      })
       setReport({
         startDate,
         endDate,
@@ -293,85 +165,54 @@ export default function ActivityReportView() {
           dateStyle: "long",
           timeStyle: "short",
         }).format(new Date()),
+        generatedBy: data.generadoPor,
         elapsed: `${((performance.now() - startedAt) / 1000).toFixed(1)} s`,
       })
-    } catch (error) {
-      setGenerating(false)
-      const message = error instanceof Error ? error.message : ""
-      if (message === "No hay transacciones en el rango seleccionado") {
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 404) {
         setNoData(true)
       } else {
-        setError(message || "No fue posible generar el reporte")
+        setError(errorMessage(caught, "No fue posible generar el reporte"))
       }
+    } finally {
+      setGenerating(false)
     }
   }
 
-  function applyPreset(preset: "quarter" | "semester" | "empty") {
+  function applyPreset(preset: Preset) {
+    const [inicio, fin] = rangoPreset(preset)
     setError("")
     setNoData(false)
     setReport(null)
-    setExportMessage("")
-    if (preset === "quarter") {
-      setStartDate("2026-01-01")
-      setEndDate("2026-03-31")
-    } else if (preset === "semester") {
-      setStartDate("2026-01-01")
-      setEndDate("2026-06-30")
-    } else {
-      setStartDate("2025-01-01")
-      setEndDate("2025-01-31")
-    }
+    setExportResult(null)
+    setStartDate(inicio)
+    setEndDate(fin)
   }
 
   async function exportReport() {
     if (!report) return
     setExporting(true)
-    setExportMessage("")
+    setExportResult(null)
+    const format = exportFormat === "excel" ? "xlsx" : "pdf"
     try {
-      const format = exportFormat === "excel" ? "xlsx" : "pdf"
-      const baseUrl = ((import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "")
-      const response = await fetch(
-        `${baseUrl}/api/reportes/actividad?fechaInicial=${report.startDate}&fechaFinal=${report.endDate}&formato=${format}`,
-        {
-          headers: {
-            "X-Rol": window.localStorage.getItem("bancox-role") ?? "",
-            "X-Usuario-Id": window.localStorage.getItem("bancox-user-id") ?? "",
-          },
-        },
+      await apiDownload(
+        `/api/reportes/actividad?fechaInicial=${report.startDate}&fechaFinal=${report.endDate}&formato=${format}`,
+        `reporte-actividad_${report.startDate}_${report.endDate}.${format}`,
       )
-      if (!response.ok) throw new Error("No fue posible exportar el reporte")
-      const blob = await response.blob()
-      const suffix = `${report.startDate}_${report.endDate}`
-      downloadBlob(
-        blob,
-        exportFormat === "excel"
-          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          : "application/pdf",
-        `BancoX_Actividad_${suffix}.${format}`,
-      )
+      setExportResult({
+        ok: true,
+        message: `Reporte exportado correctamente en formato ${exportFormat === "pdf" ? "PDF" : "Excel"}.`,
+      })
+    } catch (caught) {
+      setExportResult({ ok: false, message: errorMessage(caught, "No fue posible exportar el reporte") })
+    } finally {
       setExporting(false)
-      setExportMessage(
-        `Reporte exportado correctamente en formato ${
-          exportFormat === "pdf" ? "PDF" : "Excel"
-        }.`,
-      )
-    } catch (error) {
-      setExporting(false)
-      setExportMessage(error instanceof Error ? error.message : "No fue posible exportar el reporte")
     }
   }
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={MANAGER_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel="Gestor Rodríguez"
-        userSub="Gestor Bancario"
-        userInitials="GR"
-        badge="Plataforma Gestión"
-      />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-bg-base/95 px-8 py-5 backdrop-blur">
@@ -438,16 +279,16 @@ export default function ActivityReportView() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <PresetButton
-                  label="Primer trimestre"
+                  label="Mes actual"
+                  onClick={() => applyPreset("month")}
+                />
+                <PresetButton
+                  label="Últimos 3 meses"
                   onClick={() => applyPreset("quarter")}
                 />
                 <PresetButton
-                  label="Primer semestre"
-                  onClick={() => applyPreset("semester")}
-                />
-                <PresetButton
-                  label="Probar sin datos"
-                  onClick={() => applyPreset("empty")}
+                  label="Último año"
+                  onClick={() => applyPreset("year")}
                 />
               </div>
             </div>
@@ -457,6 +298,7 @@ export default function ActivityReportView() {
                 id="report-start-date"
                 label="Fecha inicial"
                 value={startDate}
+                max={endDate || today}
                 error={Boolean(error)}
                 onChange={(value) => {
                   setStartDate(value)
@@ -469,6 +311,7 @@ export default function ActivityReportView() {
                 id="report-end-date"
                 label="Fecha final"
                 value={endDate}
+                max={today}
                 error={Boolean(error)}
                 onChange={(value) => {
                   setEndDate(value)
@@ -519,15 +362,14 @@ export default function ActivityReportView() {
                 No hay transacciones en el rango seleccionado
               </h2>
               <p className="mx-auto mt-1 max-w-lg text-sm text-text-muted">
-                Selecciona otro periodo o usa el primer trimestre para consultar
-                datos disponibles.
+                Selecciona otro periodo o amplía el rango de fechas.
               </p>
               <button
                 type="button"
-                onClick={() => applyPreset("quarter")}
+                onClick={() => applyPreset("year")}
                 className="mt-5 rounded-xl border border-border bg-purple-400/10 px-5 py-2.5 text-sm font-semibold text-purple-200 hover:bg-purple-400/15"
               >
-                Usar periodo con datos
+                Usar el último año
               </button>
             </div>
           )}
@@ -610,13 +452,17 @@ export default function ActivityReportView() {
                 </div>
               </div>
 
-              {exportMessage && (
+              {exportResult && (
                 <div
-                  role="status"
-                  className="flex items-center gap-2 rounded-xl border border-success/20 bg-success/10 px-4 py-3 text-sm font-semibold text-emerald-300"
+                  role={exportResult.ok ? "status" : "alert"}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold ${
+                    exportResult.ok
+                      ? "border-success/20 bg-success/10 text-emerald-300"
+                      : "border-danger/25 bg-danger/10 text-red-300"
+                  }`}
                 >
-                  <IcoCheck />
-                  {exportMessage}
+                  {exportResult.ok ? <IcoCheck /> : <IcoAlert />}
+                  {exportResult.message}
                 </div>
               )}
 
@@ -639,7 +485,7 @@ export default function ActivityReportView() {
                   icon={<IcoCuentas />}
                   label="Cuentas activas"
                   value={report.activeAccounts.toLocaleString("es-CO")}
-                  detail="Al cierre del periodo"
+                  detail="Estado actual del banco"
                   color="blue"
                 />
               </section>
@@ -733,7 +579,7 @@ export default function ActivityReportView() {
                     <IcoInfo />
                   </span>
                   <p className="text-xs leading-relaxed text-text-muted">
-                    Reporte generado por Gestor Rodríguez. Los valores
+                    Reporte generado por {report.generatedBy}. Los valores
                     corresponden a operaciones consolidadas del periodo
                     seleccionado.
                   </p>
@@ -754,12 +600,14 @@ function DateField({
   id,
   label,
   value,
+  max,
   error,
   onChange,
 }: {
   id: string
   label: string
   value: string
+  max: string
   error: boolean
   onChange: (value: string) => void
 }) {
@@ -775,6 +623,7 @@ function DateField({
         id={id}
         type="date"
         value={value}
+        max={max}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={error}
         className={`w-full rounded-xl border bg-purple-400/5 px-4 py-3 text-sm text-text-primary outline-none transition-all focus:ring-4 focus:ring-purple-400/10 ${

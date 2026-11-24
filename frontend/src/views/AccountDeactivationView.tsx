@@ -1,36 +1,24 @@
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { Link, useSearchParams } from "react-router"
 import Sidebar from "../shared/Sidebar"
-import { apiRequest } from "../shared/api"
+import { ApiError, apiRequest, errorMessage } from "../shared/api"
+import { PATRON_CUENTA, etiquetaTipoCuenta, fmtCOP, fmtFecha, fmtFechaLarga, normalizarNumeroCuenta } from "../shared/helpers"
+import { getSession, initials as inicialesDe } from "../shared/session"
+import type { CuentaApi, TransaccionApi } from "../shared/types"
 import {
   IcoAccountMinus,
   IcoAlert,
   IcoCard,
   IcoCheck,
   IcoChevron,
-  IcoClientes,
   IcoClock,
   IcoClose,
-  IcoConfig,
   IcoCuentas,
-  IcoDash,
   IcoDatabase,
   IcoInfo,
-  IcoProductos,
-  IcoReportes,
   IcoSearch,
   IcoShield,
-  IcoTransfer,
 } from "../shared/icons"
-
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-]
 
 type Account = {
   number: string
@@ -46,73 +34,33 @@ type Account = {
   lastTransaction: string
 }
 
-const INITIAL_ACCOUNTS: Account[] = [
-  {
-    number: "301-884-1200-07",
-    type: "Cuenta de ahorros",
-    status: "Activa",
-    balance: 0,
-    activeCards: 0,
-    owner: "Diego Alejandro Ríos",
-    ownerId: "BX-C88-21470369",
-    initials: "DR",
-    openedAt: "17 de junio de 2020",
-    transactions: 148,
-    lastTransaction: "28 de enero de 2026",
-  },
-  {
-    number: "301-481-2209-12",
-    type: "Cuenta de ahorros",
-    status: "Activa",
-    balance: 8_450_320,
-    activeCards: 0,
-    owner: "Laura Sofía Mendoza",
-    ownerId: "BX-C10-20304050",
-    initials: "LM",
-    openedAt: "12 de febrero de 2021",
-    transactions: 326,
-    lastTransaction: "9 de febrero de 2026",
-  },
-  {
-    number: "501-903-6411-25",
-    type: "Cuenta corriente",
-    status: "Activa",
-    balance: 0,
-    activeCards: 1,
-    owner: "Carlos Andrés Herrera",
-    ownerId: "BX-C79-45612308",
-    initials: "CH",
-    openedAt: "6 de agosto de 2019",
-    transactions: 241,
-    lastTransaction: "2 de febrero de 2026",
-  },
-]
-
 type ViewState = "idle" | "loading" | "found" | "not-found"
 
-type ApiAccount = {
-  numeroCuenta: string
-  tipo: "AHORROS" | "CORRIENTE"
-  saldo: number
-  activa: boolean
-  idCliente: string
-}
+const formatCurrency = fmtCOP
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(value)
+function aCuentaVista(cuenta: CuentaApi, movimientos: TransaccionApi[]): Account {
+  return {
+    number: cuenta.numeroCuenta,
+    type: etiquetaTipoCuenta(cuenta.tipo),
+    status: cuenta.activa ? "Activa" : "Inactiva",
+    balance: Number(cuenta.saldo),
+    activeCards: cuenta.tarjetasActivas,
+    owner: cuenta.titular,
+    ownerId: cuenta.idCliente,
+    initials: inicialesDe(cuenta.titular),
+    openedAt: fmtFechaLarga(cuenta.fechaApertura),
+    transactions: movimientos.length,
+    lastTransaction: movimientos.length > 0 ? fmtFecha(movimientos[0].fecha) : "Sin movimientos",
+  }
 }
 
 export default function AccountDeactivationView() {
-  const [activeNav, setActiveNav] = useState("cuentas")
-  const [accounts, setAccounts] = useState(INITIAL_ACCOUNTS)
-  const [query, setQuery] = useState("")
+  const [searchParams, setSearchParams] = useSearchParams()
+  const numeroParam = searchParams.get("numero")
+  const [query, setQuery] = useState(numeroParam ?? "")
   const [searchError, setSearchError] = useState("")
   const [viewState, setViewState] = useState<ViewState>("idle")
-  const [selectedNumber, setSelectedNumber] = useState("")
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
   const [lastQuery, setLastQuery] = useState("")
   const [blockingError, setBlockingError] = useState<{
     title: string
@@ -120,14 +68,10 @@ export default function AccountDeactivationView() {
   } | null>(null)
   const [confirmationOpen, setConfirmationOpen] = useState(false)
   const [confirmationAccepted, setConfirmationAccepted] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [cancelled, setCancelled] = useState(false)
-  const [success, setSuccess] = useState<{
-    timestamp: string
-    reference: string
-  } | null>(null)
-
-  const selectedAccount =
-    accounts.find((account) => account.number === selectedNumber) ?? null
+  const [success, setSuccess] = useState<{ timestamp: string } | null>(null)
+  const gestor = getSession()?.nombre ?? "Gestor"
 
   function clearMessages() {
     setBlockingError(null)
@@ -135,65 +79,56 @@ export default function AccountDeactivationView() {
     setSuccess(null)
   }
 
-  function loadAccount(account: Account) {
-    setSelectedNumber(account.number)
-    setViewState("found")
+  const buscar = useCallback(async (numero: string) => {
     setSearchError("")
-    clearMessages()
-  }
-
-  async function handleSearch(event: React.FormEvent) {
-    event.preventDefault()
-    const value = query.trim()
-    if (!/^[A-Za-z0-9-]{6,20}$/.test(value)) {
-      setSearchError("Ingrese un número de cuenta o identificador válido")
-      setViewState("idle")
-      return
-    }
-
-    setSearchError("")
-    clearMessages()
-    setLastQuery(value)
+    setBlockingError(null)
+    setCancelled(false)
+    setSuccess(null)
+    setLastQuery(numero)
     setViewState("loading")
     try {
-      const account = await apiRequest<ApiAccount>(`/api/cuentas/${encodeURIComponent(value)}`)
-      const mapped: Account = {
-        number: account.numeroCuenta,
-        type: account.tipo === "AHORROS" ? "Cuenta de ahorros" : "Cuenta corriente",
-        status: account.activa ? "Activa" : "Inactiva",
-        balance: Number(account.saldo),
-        activeCards: 0,
-        owner: "Cliente asociado",
-        ownerId: account.idCliente,
-        initials: "CA",
-        openedAt: "No disponible",
-        transactions: 0,
-        lastTransaction: "No disponible",
-      }
-      setAccounts((current) => [
-        mapped,
-        ...current.filter((item) => item.number !== mapped.number),
+      const [cuenta, movimientos] = await Promise.all([
+        apiRequest<CuentaApi>(`/api/cuentas/${encodeURIComponent(numero)}`),
+        apiRequest<TransaccionApi[]>(`/api/transacciones/cuenta/${encodeURIComponent(numero)}`),
       ])
-      setSelectedNumber(mapped.number)
+      setSelectedAccount(aCuentaVista(cuenta, movimientos))
       setViewState("found")
-    } catch {
-      setSelectedNumber("")
+    } catch (caught) {
+      setSelectedAccount(null)
       setViewState("not-found")
+      if (!(caught instanceof ApiError && caught.status === 404)) {
+        setSearchError(errorMessage(caught, "No fue posible consultar la cuenta"))
+      }
     }
-  }
+  }, [])
 
-  function selectExample(account: Account) {
-    setQuery(account.number)
-    loadAccount(account)
+  useEffect(() => {
+    if (numeroParam) {
+      const numero = normalizarNumeroCuenta(numeroParam)
+      if (PATRON_CUENTA.test(numero)) void buscar(numero)
+    }
+  }, [numeroParam, buscar])
+
+  function handleSearch(event: React.FormEvent) {
+    event.preventDefault()
+    const value = normalizarNumeroCuenta(query)
+    if (!PATRON_CUENTA.test(value)) {
+      setSearchError("Ingrese un número de cuenta válido (ej: 301-123-4567-89)")
+      return
+    }
+    setQuery(value)
+    if (value === numeroParam) void buscar(value)
+    else setSearchParams({ numero: value })
   }
 
   function resetSearch() {
     setQuery("")
     setSearchError("")
-    setSelectedNumber("")
+    setSelectedAccount(null)
     setLastQuery("")
     clearMessages()
     setViewState("idle")
+    setSearchParams({})
   }
 
   function requestDeactivation() {
@@ -213,7 +148,7 @@ export default function AccountDeactivationView() {
     if (selectedAccount.activeCards > 0) {
       setBlockingError({
         title: "Debe eliminar las tarjetas activas asociadas a la cuenta",
-        detail: `${selectedAccount.activeCards} tarjeta activa debe ser cancelada antes de continuar.`,
+        detail: `${selectedAccount.activeCards} ${selectedAccount.activeCards === 1 ? "tarjeta vigente debe ser eliminada" : "tarjetas vigentes deben ser eliminadas"} antes de continuar.`,
       })
       return
     }
@@ -224,6 +159,7 @@ export default function AccountDeactivationView() {
   }
 
   function cancelDeactivation() {
+    if (processing) return
     setConfirmationOpen(false)
     setConfirmationAccepted(false)
     setCancelled(true)
@@ -231,33 +167,26 @@ export default function AccountDeactivationView() {
 
   async function confirmDeactivation() {
     if (!selectedAccount || !confirmationAccepted) return
+    setProcessing(true)
     try {
-      await apiRequest(`/api/cuentas/${encodeURIComponent(selectedAccount.number)}/desactivar`, {
+      const cuenta = await apiRequest<CuentaApi>(`/api/cuentas/${encodeURIComponent(selectedAccount.number)}/desactivar`, {
         method: "PATCH",
       })
-      const now = new Date()
-      setAccounts((current) =>
-        current.map((account) =>
-          account.number === selectedAccount.number
-            ? { ...account, status: "Inactiva" }
-            : account,
-        ),
-      )
-      setConfirmationOpen(false)
-      setConfirmationAccepted(false)
+      setSelectedAccount({ ...selectedAccount, status: cuenta.activa ? "Activa" : "Inactiva" })
       setCancelled(false)
       setSuccess({
         timestamp: new Intl.DateTimeFormat("es-CO", {
           dateStyle: "long",
           timeStyle: "short",
-        }).format(now),
-        reference: `AUD-CTA-${String(now.getTime()).slice(-7)}`,
+        }).format(new Date()),
       })
     } catch (error) {
       setBlockingError({
-        title: error instanceof Error ? error.message : "No fue posible desactivar la cuenta",
+        title: errorMessage(error, "No fue posible desactivar la cuenta"),
         detail: "La operación no realizó ningún cambio.",
       })
+    } finally {
+      setProcessing(false)
       setConfirmationOpen(false)
       setConfirmationAccepted(false)
     }
@@ -265,15 +194,7 @@ export default function AccountDeactivationView() {
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={MANAGER_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel="Gestor Rodríguez"
-        userSub="Gestor Bancario"
-        userInitials="GR"
-        badge="Plataforma Gestión"
-      />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-bg-base/95 px-8 py-5 backdrop-blur">
@@ -344,7 +265,7 @@ export default function AccountDeactivationView() {
                       setSearchError("")
                     }}
                     aria-invalid={Boolean(searchError)}
-                    placeholder="Ej: 301-884-1200-07"
+                    placeholder="Ej: 301-123-4567-89"
                     className={`w-full rounded-xl border bg-purple-400/5 py-3 pl-11 pr-4 text-sm text-text-primary outline-none transition-all focus:ring-4 focus:ring-purple-400/10 ${
                       searchError
                         ? "border-danger"
@@ -409,10 +330,10 @@ export default function AccountDeactivationView() {
                 <IcoAlert />
               </span>
               <h2 className="font-display text-lg font-bold text-text-primary">
-                Cuenta no encontrada
+                {searchError ? "No fue posible completar la consulta" : "Cuenta no encontrada"}
               </h2>
               <p className="mt-1 text-sm text-text-muted">
-                No encontramos una cuenta asociada a “{lastQuery}”.
+                {searchError || `No encontramos una cuenta asociada a “${lastQuery}”.`}
               </p>
               <button
                 type="button"
@@ -454,9 +375,15 @@ export default function AccountDeactivationView() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
-                      <span>{selectedAccount.number}</span>
+                      <span data-i18n-ignore>{selectedAccount.number}</span>
                       <span>{selectedAccount.owner}</span>
-                      <span>ID {selectedAccount.ownerId}</span>
+                      <Link
+                        to={`/gestor/clientes?cedula=${encodeURIComponent(selectedAccount.ownerId)}`}
+                        className="text-purple-300 hover:underline"
+                        data-i18n-ignore
+                      >
+                        ID {selectedAccount.ownerId}
+                      </Link>
                     </div>
                   </div>
                   <button
@@ -572,11 +499,11 @@ export default function AccountDeactivationView() {
                     />
                     <AuditDetail
                       label="Gestor responsable"
-                      value="Gestor Rodríguez"
+                      value={gestor}
                     />
                     <AuditDetail
-                      label="Referencia de auditoría"
-                      value={success.reference}
+                      label="Cuenta"
+                      value={selectedAccount.number}
                       accent
                     />
                   </div>
@@ -770,11 +697,11 @@ export default function AccountDeactivationView() {
                 <button
                   type="button"
                   onClick={confirmDeactivation}
-                  disabled={!confirmationAccepted}
+                  disabled={!confirmationAccepted || processing}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-danger py-2.5 text-sm font-semibold text-white shadow-lg shadow-danger/20 hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-danger/35 disabled:text-white/50 disabled:shadow-none"
                 >
                   <IcoAccountMinus />
-                  Sí, desactivar
+                  {processing ? "Desactivando..." : "Sí, desactivar"}
                 </button>
               </div>
             </div>

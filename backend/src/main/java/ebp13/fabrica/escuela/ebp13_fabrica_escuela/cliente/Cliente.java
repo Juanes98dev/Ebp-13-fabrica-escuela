@@ -8,6 +8,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Entity
 public class Cliente {
@@ -48,11 +51,44 @@ public class Cliente {
     @Column(nullable = false)
     private boolean activo = true;
 
+    private Integer intentosFallidos;
+    private LocalDateTime bloqueadoHasta;
+    private LocalDateTime fechaRegistro;
+
     public Cliente() {
     }
 
+    public String getNombreCompleto() {
+        return Stream.of(primerNombre, segundoNombre, primerApellido, segundoApellido)
+                .filter(parte -> parte != null && !parte.isBlank())
+                .collect(Collectors.joining(" "));
+    }
+
+    public int getIntentosFallidos() {
+        return intentosFallidos == null ? 0 : intentosFallidos;
+    }
+
+    public void setIntentosFallidos(int intentosFallidos) {
+        this.intentosFallidos = intentosFallidos;
+    }
+
+    public LocalDateTime getBloqueadoHasta() {
+        return bloqueadoHasta;
+    }
+
+    public void setBloqueadoHasta(LocalDateTime bloqueadoHasta) {
+        this.bloqueadoHasta = bloqueadoHasta;
+    }
+
+    public LocalDateTime getFechaRegistro() {
+        return fechaRegistro;
+    }
+
     @PrePersist
-    private void generarIdCliente() {
+    private void alCrear() {
+        if (fechaRegistro == null) {
+            fechaRegistro = LocalDateTime.now();
+        }
         if (idCliente == null || idCliente.isBlank()) {
             idCliente = "BX-%06d-%03d".formatted(
                     RANDOM.nextInt(1_000_000),

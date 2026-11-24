@@ -13,8 +13,8 @@ public class ClienteRequest {
 
     @NotBlank(message = "La cédula es obligatoria")
     @Pattern(
-            regexp = "^[0-9]{6,15}$",
-            message = "La cédula debe tener entre 6 y 15 dígitos"
+            regexp = "^[0-9]{6,10}$",
+            message = "La cédula debe contener entre 6 y 10 dígitos"
     )
     private String cedula;
 
@@ -39,6 +39,7 @@ public class ClienteRequest {
     @Size(max = 30, message = "El género no puede superar 30 caracteres")
     private String genero;
 
+    @NotBlank(message = "El correo electrónico es obligatorio")
     @Email(message = "El correo electrónico no tiene un formato válido")
     @Size(max = 150, message = "El correo no puede superar 150 caracteres")
     private String email;

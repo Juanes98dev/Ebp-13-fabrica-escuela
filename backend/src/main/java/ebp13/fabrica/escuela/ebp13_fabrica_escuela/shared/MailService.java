@@ -3,6 +3,7 @@ package ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.MailException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -24,8 +25,14 @@ public class MailService {
         this.from = from;
     }
 
+    /**
+     * Envía una notificación sin propagar fallos: un SMTP caído no debe revertir la operación bancaria.
+     */
     public void send(String to, String subject, String text) {
-        if (smtpHost == null || smtpHost.isBlank()) {
+        if (to == null || to.isBlank()) {
+            return;
+        }
+        if (smtpHost == null || smtpHost.isBlank() || mailSender == null) {
             LOG.info("SMTP no configurado. Correo omitido para {}: {} - {}", to, subject, text);
             return;
         }
@@ -34,10 +41,10 @@ public class MailService {
         message.setTo(to);
         message.setSubject(subject);
         message.setText(text);
-        if (mailSender != null) {
+        try {
             mailSender.send(message);
-        } else {
-            LOG.info("JavaMailSender no disponible. Correo omitido para {}: {} - {}", to, subject, text);
+        } catch (MailException exception) {
+            LOG.warn("No fue posible enviar el correo '{}' a {}: {}", subject, to, exception.getMessage());
         }
     }
 }

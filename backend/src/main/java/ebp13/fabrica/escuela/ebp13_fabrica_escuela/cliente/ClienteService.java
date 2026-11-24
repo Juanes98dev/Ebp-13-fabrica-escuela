@@ -1,19 +1,22 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente;
 
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteContactoRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.dto.ClienteResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaDuplicadaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.CedulaInvalidaException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteInactivoException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteNoEncontradoException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.CuentaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionActiva;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.UsuarioSesion;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
 import java.security.SecureRandom;
 import java.util.List;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.CuentaRepository;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionRepository;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionActiva;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
+import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.stereotype.Service;
@@ -22,15 +25,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ClienteService {
 
-    private static final String RANDOM_CHARACTERS =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
+    private static final String ROL_CLIENTE = "CLIENTE";
+    private static final String RANDOM_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final ClienteRepository clienteRepository;
-    private CuentaRepository cuentaRepository;
-    private AuditoriaRepository auditoriaRepository;
-    private SesionRepository sesionRepository;
+    private final CuentaRepository cuentaRepository;
+    private final AuditoriaRepository auditoriaRepository;
+    private final SesionRepository sesionRepository;
 
     public ClienteService(ClienteRepository clienteRepository,
                           CuentaRepository cuentaRepository,
@@ -43,150 +45,147 @@ public class ClienteService {
     }
 
     @Transactional
-    public ClienteResponse crear(ClienteRequest request) {
-        validarCedula(request.getCedula());
-
-        if (clienteRepository.existsByCedula(request.getCedula())) {
-            throw new CedulaDuplicadaException(
-                    "La cédula ya está registrada"
-            );
+    public ClienteResponse crear(UsuarioSesion gestor, ClienteRequest request) {
+        String cedula = request.getCedula() == null ? "" : request.getCedula().trim();
+        validarCedula(cedula);
+        if (clienteRepository.existsByCedula(cedula)) {
+            throw new CedulaDuplicadaException("La cédula ya está registrada");
+        }
+        String email = request.getEmail().trim().toLowerCase();
+        if (clienteRepository.existsByEmailIgnoreCase(email)) {
+            throw new Sprint3Exception(HttpStatus.CONFLICT, "El correo electrónico ya está registrado");
         }
 
         Cliente cliente = new Cliente();
-
         cliente.setIdCliente(generarIdCliente());
-        cliente.setCedula(request.getCedula());
-        cliente.setPrimerNombre(request.getPrimerNombre());
-        cliente.setSegundoNombre(request.getSegundoNombre());
-        cliente.setPrimerApellido(request.getPrimerApellido());
-        cliente.setSegundoApellido(request.getSegundoApellido());
+        cliente.setCedula(cedula);
+        cliente.setPrimerNombre(request.getPrimerNombre().trim());
+        cliente.setSegundoNombre(limpiar(request.getSegundoNombre()));
+        cliente.setPrimerApellido(request.getPrimerApellido().trim());
+        cliente.setSegundoApellido(limpiar(request.getSegundoApellido()));
         cliente.setFechaNacimiento(request.getFechaNacimiento());
-        cliente.setGenero(request.getGenero());
-        cliente.setEmail(request.getEmail());
-        cliente.setTelefono(request.getTelefono());
-        cliente.setDireccion(request.getDireccion());
-        cliente.setCiudad(request.getCiudad());
-        cliente.setDepartamento(request.getDepartamento());
+        cliente.setGenero(limpiar(request.getGenero()));
+        cliente.setEmail(email);
+        cliente.setTelefono(limpiar(request.getTelefono()));
+        cliente.setDireccion(limpiar(request.getDireccion()));
+        cliente.setCiudad(limpiar(request.getCiudad()));
+        cliente.setDepartamento(limpiar(request.getDepartamento()));
         cliente.setActivo(true);
-        cliente.setRol("CLIENTE");
-        cliente.setPasswordHash(BCrypt.hashpw(request.getCedula(), BCrypt.gensalt()));
+        cliente.setRol(ROL_CLIENTE);
+        // Contraseña inicial: la cédula. El cliente debe cambiarla desde "Seguridad".
+        cliente.setPasswordHash(BCrypt.hashpw(cedula, BCrypt.gensalt()));
 
-        return toResponse(clienteRepository.save(cliente));
+        cliente = clienteRepository.save(cliente);
+        auditoriaRepository.save(new RegistroAuditoria(gestor.id(), gestor.rol(), "CREAR_CLIENTE",
+                "CLIENTE", cliente.getId().toString(), null, cliente.getIdCliente()));
+        return toResponse(cliente);
     }
 
     @Transactional(readOnly = true)
     public List<ClienteResponse> listar() {
-        return clienteRepository.findAll()
+        return clienteRepository.findByRolOrderByPrimerApellidoAscPrimerNombreAsc(ROL_CLIENTE)
                 .stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    @Transactional(readOnly = true)
-    public ClienteResponse buscar(String valor) {
-        String normalized = valor == null ? "" : valor.trim().replaceAll("\\s+", "");
-        Cliente cliente = clienteRepository.findByCedula(normalized)
-                .or(() -> clienteRepository.findAll().stream()
-                        .filter(item -> normalized.equalsIgnoreCase(item.getIdCliente()))
-                        .findFirst())
+    @Transactional
+    public ClienteResponse buscar(UsuarioSesion gestor, String valor) {
+        String criterio = valor == null ? "" : valor.trim().replaceAll("\\s+", "");
+        Cliente cliente = clienteRepository.findByCedula(criterio)
+                .or(() -> clienteRepository.findByIdClienteIgnoreCase(criterio))
+                .filter(item -> ROL_CLIENTE.equalsIgnoreCase(item.getRol()))
                 .orElseThrow(() -> new ClienteNoEncontradoException(
-                        "No existe el cliente con criterio " + normalized));
+                        "No existe un cliente con la cédula o identificador " + criterio));
+        auditoriaRepository.save(new RegistroAuditoria(gestor.id(), gestor.rol(), "CONSULTAR_CLIENTE",
+                "CLIENTE", cliente.getId().toString(), null, null));
         return toResponse(cliente);
     }
 
     @Transactional
-    public ClienteResponse modificar(Long id, String rol, Long gestorId, ClienteRequest request) {
-        validarGestor(rol);
-        Cliente cliente = clienteRepository.findById(id).orElseThrow(
-                () -> new ClienteNoEncontradoException("No existe el cliente con id " + id));
+    public ClienteResponse modificar(UsuarioSesion gestor, Long id, ClienteContactoRequest request) {
+        Cliente cliente = buscarCliente(id);
         if (!cliente.isActivo()) {
             throw new ClienteInactivoException("El cliente está inactivo");
         }
-        if (request.getEmail() == null || !request.getEmail().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
-            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "Correo electrónico inválido");
+        String email = request.email().trim().toLowerCase();
+        if (clienteRepository.existsByEmailIgnoreCaseAndIdNot(email, id)) {
+            throw new Sprint3Exception(HttpStatus.CONFLICT, "El correo electrónico ya está registrado por otro cliente");
         }
-        if (request.getTelefono() == null || !request.getTelefono().matches("^[0-9+() -]{7,20}$")) {
-            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "Teléfono inválido");
+        String telefono = request.telefono().trim();
+        String direccion = limpiar(request.direccion());
+        if (Objects.equals(email, cliente.getEmail())
+                && Objects.equals(telefono, cliente.getTelefono())
+                && Objects.equals(direccion, cliente.getDireccion())) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "No hay cambios para guardar");
         }
-        String anterior = cliente.getEmail() + "|" + cliente.getTelefono() + "|" + cliente.getDireccion();
-        cliente.setEmail(request.getEmail());
-        cliente.setTelefono(request.getTelefono());
-        cliente.setDireccion(request.getDireccion());
-        cliente = clienteRepository.save(cliente);
-        String nuevo = cliente.getEmail() + "|" + cliente.getTelefono() + "|" + cliente.getDireccion();
-        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "MODIFICAR_CLIENTE",
-                "CLIENTE", id.toString(), anterior, nuevo));
+        String anterior = contacto(cliente);
+        cliente.setEmail(email);
+        cliente.setTelefono(telefono);
+        cliente.setDireccion(direccion);
+        auditoriaRepository.save(new RegistroAuditoria(gestor.id(), gestor.rol(), "MODIFICAR_CLIENTE",
+                "CLIENTE", id.toString(), anterior, contacto(cliente)));
         return toResponse(cliente);
     }
 
     @Transactional
-    public ClienteResponse desactivar(Long id, String rol, Long gestorId) {
-        validarGestor(rol);
-        Cliente cliente = clienteRepository.findById(id).orElseThrow(
-                () -> new ClienteNoEncontradoException("No existe el cliente con id " + id));
+    public ClienteResponse desactivar(UsuarioSesion gestor, Long id) {
+        Cliente cliente = buscarCliente(id);
         if (!cliente.isActivo()) {
             throw new ClienteInactivoException("El cliente ya está inactivo");
         }
-        boolean cuentasActivas = cuentaRepository.findByCliente_Id(id).stream().anyMatch(c -> c.isActiva());
-        if (cuentasActivas) {
+        if (cuentaRepository.existsByCliente_IdAndActivaTrue(id)) {
             throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
                     "No es posible desactivar un cliente con cuentas activas");
         }
         cliente.setActivo(false);
-        cliente = clienteRepository.save(cliente);
         for (SesionActiva sesion : sesionRepository.findByUsuarioIdAndActivaTrue(id)) {
-            sesion.setActiva(false);
-            sesionRepository.save(sesion);
+            sesion.cerrar("Cliente desactivado");
         }
-        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "DESACTIVAR_CLIENTE",
+        auditoriaRepository.save(new RegistroAuditoria(gestor.id(), gestor.rol(), "DESACTIVAR_CLIENTE",
                 "CLIENTE", id.toString(), "activo", "inactivo"));
         return toResponse(cliente);
     }
 
-    private void validarGestor(String rol) {
-        if (!"GESTOR".equalsIgnoreCase(rol)) {
-            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "Solo disponible para gestor");
-        }
+    private Cliente buscarCliente(Long id) {
+        return clienteRepository.findById(id)
+                .filter(item -> ROL_CLIENTE.equalsIgnoreCase(item.getRol()))
+                .orElseThrow(() -> new ClienteNoEncontradoException("No existe el cliente con id " + id));
     }
 
     private void validarCedula(String cedula) {
-        if (cedula == null || !cedula.matches("\\d{6,10}")) {
-            throw new CedulaInvalidaException(
-                    "La cédula debe contener entre 6 y 10 dígitos"
-            );
+        if (!cedula.matches("\\d{6,10}")) {
+            throw new CedulaInvalidaException("La cédula debe contener entre 6 y 10 dígitos");
         }
+    }
+
+    private String contacto(Cliente cliente) {
+        return cliente.getEmail() + "|" + cliente.getTelefono() + "|" + cliente.getDireccion();
+    }
+
+    private String limpiar(String valor) {
+        return valor == null || valor.isBlank() ? null : valor.trim();
     }
 
     private String generarIdCliente() {
         String idCliente;
-
         do {
-            idCliente = "BX-"
-                    + Long.toString(System.currentTimeMillis(), 36)
-                    + "-"
-                    + generarSufijoAleatorio();
+            idCliente = "BX-" + Long.toString(System.currentTimeMillis(), 36).toUpperCase()
+                    + "-" + generarSufijoAleatorio();
         } while (clienteRepository.existsByIdCliente(idCliente));
-
         return idCliente;
     }
 
     private String generarSufijoAleatorio() {
         StringBuilder sufijo = new StringBuilder(3);
-
         for (int i = 0; i < 3; i++) {
-            sufijo.append(
-                    RANDOM_CHARACTERS.charAt(
-                            RANDOM.nextInt(RANDOM_CHARACTERS.length())
-                    )
-            );
+            sufijo.append(RANDOM_CHARACTERS.charAt(RANDOM.nextInt(RANDOM_CHARACTERS.length())));
         }
-
         return sufijo.toString();
     }
 
     private ClienteResponse toResponse(Cliente cliente) {
         ClienteResponse response = new ClienteResponse();
-
         response.setId(cliente.getId());
         response.setIdCliente(cliente.getIdCliente());
         response.setCedula(cliente.getCedula());
@@ -194,6 +193,7 @@ public class ClienteService {
         response.setSegundoNombre(cliente.getSegundoNombre());
         response.setPrimerApellido(cliente.getPrimerApellido());
         response.setSegundoApellido(cliente.getSegundoApellido());
+        response.setNombreCompleto(cliente.getNombreCompleto());
         response.setFechaNacimiento(cliente.getFechaNacimiento());
         response.setGenero(cliente.getGenero());
         response.setEmail(cliente.getEmail());
@@ -202,7 +202,7 @@ public class ClienteService {
         response.setCiudad(cliente.getCiudad());
         response.setDepartamento(cliente.getDepartamento());
         response.setActivo(cliente.isActivo());
-
+        response.setFechaRegistro(cliente.getFechaRegistro());
         return response;
     }
 }

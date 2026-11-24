@@ -1,19 +1,29 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import Sidebar from "../shared/Sidebar";
-import { IcoDash, IcoClientes, IcoCuentas, IcoTransfer, IcoProductos, IcoReportes, IcoConfig, IcoAlert, IcoCheck, IcoClose, IcoChevron, IcoAdd } from "../shared/icons";
+import { IcoAlert, IcoCheck, IcoClose, IcoChevron, IcoAdd } from "../shared/icons";
 import { validarCedula } from "../shared/helpers";
-import type { ManagerFormData, ManagerFormErrors } from "../shared/types";
-import { apiRequest } from "../shared/api";
+import type { ClienteApi, ManagerFormData, ManagerFormErrors } from "../shared/types";
+import { apiRequest, errorMessage } from "../shared/api";
 
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-];
+const FORM_VACIO: ManagerFormData = {
+  cedula: "", primerNombre: "", segundoNombre: "",
+  primerApellido: "", segundoApellido: "",
+  fechaNacimiento: "", genero: "", email: "",
+  telefono: "", direccion: "", ciudad: "", departamento: "",
+};
+
+/** Ubica el error del servidor en el campo al que se refiere, si se puede identificar. */
+function campoDelError(mensaje: string): keyof ManagerFormData | null {
+  const texto = mensaje.toLowerCase();
+  if (texto.includes("cédula") || texto.includes("cedula")) return "cedula";
+  if (texto.includes("correo") || texto.includes("email")) return "email";
+  if (texto.includes("nacimiento")) return "fechaNacimiento";
+  if (texto.includes("teléfono") || texto.includes("telefono")) return "telefono";
+  if (texto.includes("primer nombre")) return "primerNombre";
+  if (texto.includes("primer apellido")) return "primerApellido";
+  return null;
+}
 
 function Field({
   label,
@@ -70,17 +80,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function ManagerView() {
-  const [activeNav, setActiveNav] = useState("clientes");
-  const [form, setForm] = useState<ManagerFormData>({
-    cedula: "", primerNombre: "", segundoNombre: "",
-    primerApellido: "", segundoApellido: "",
-    fechaNacimiento: "", genero: "", email: "",
-    telefono: "", direccion: "", ciudad: "", departamento: "",
-  });
+  const navigate = useNavigate();
+  const [form, setForm] = useState<ManagerFormData>(FORM_VACIO);
   const [errors, setErrors] = useState<ManagerFormErrors>({});
-  const [cedulaStatus, setCedulaStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [cedulaStatus, setCedulaStatus] = useState<"idle" | "ok" | "error">("idle");
   const [submitted, setSubmitted] = useState(false);
-  const [clienteId, setClienteId] = useState("");
+  const [creado, setCreado] = useState<ClienteApi | null>(null);
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
 
@@ -93,12 +98,9 @@ export default function ManagerView() {
 
   function handleCedulaBlur() {
     if (!form.cedula) return;
-    setCedulaStatus("checking");
-    setTimeout(() => {
-      const r = validarCedula(form.cedula);
-      setCedulaStatus(r.valid ? "ok" : "error");
-      setErrors((e) => ({ ...e, cedula: r.valid ? undefined : r.error }));
-    }, 600);
+    const r = validarCedula(form.cedula);
+    setCedulaStatus(r.valid ? "ok" : "error");
+    setErrors((e) => ({ ...e, cedula: r.valid ? undefined : r.error }));
   }
 
   function validate(): ManagerFormErrors {
@@ -108,6 +110,7 @@ export default function ManagerView() {
     if (!form.primerNombre.trim()) e.primerNombre = "El primer nombre es requerido.";
     if (!form.primerApellido.trim()) e.primerApellido = "El primer apellido es requerido.";
     if (!form.fechaNacimiento) e.fechaNacimiento = "La fecha de nacimiento es requerida.";
+    else if (form.fechaNacimiento >= new Date().toISOString().slice(0, 10)) e.fechaNacimiento = "La fecha de nacimiento debe estar en el pasado.";
     if (!form.genero) e.genero = "Seleccione un género.";
     if (!form.email.trim()) e.email = "El correo electrónico es requerido.";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Correo electrónico inválido.";
@@ -124,43 +127,48 @@ export default function ManagerView() {
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
     setSaving(true);
+    const opcional = (valor: string) => valor.trim() || null;
     try {
-      const cliente = await apiRequest<{ idCliente: string }>("/api/clientes", {
+      const cliente = await apiRequest<ClienteApi>("/api/clientes", {
         method: "POST",
         body: JSON.stringify({
           cedula: form.cedula,
-          primerNombre: form.primerNombre,
-          segundoNombre: form.segundoNombre,
-          primerApellido: form.primerApellido,
-          segundoApellido: form.segundoApellido,
+          primerNombre: form.primerNombre.trim(),
+          segundoNombre: opcional(form.segundoNombre),
+          primerApellido: form.primerApellido.trim(),
+          segundoApellido: opcional(form.segundoApellido),
           fechaNacimiento: form.fechaNacimiento,
           genero: form.genero,
-          email: form.email,
-          telefono: form.telefono,
-          direccion: form.direccion,
-          ciudad: form.ciudad,
-          departamento: form.departamento,
+          email: form.email.trim(),
+          telefono: form.telefono.replace(/\s/g, ""),
+          direccion: opcional(form.direccion),
+          ciudad: form.ciudad.trim(),
+          departamento: opcional(form.departamento),
         }),
       });
-      setClienteId(cliente.idCliente);
+      setCreado(cliente);
       setSubmitted(true);
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : "No fue posible guardar el cliente");
-      setErrors({
-        cedula: error instanceof Error ? error.message : "No fue posible registrar el cliente",
-      });
+      const mensaje = errorMessage(error, "No fue posible registrar el cliente");
+      const campo = campoDelError(mensaje);
+      if (campo) {
+        setErrors({ [campo]: mensaje });
+        if (campo === "cedula") setCedulaStatus("error");
+      } else {
+        setApiError(mensaje);
+      }
     } finally {
       setSaving(false);
     }
   }
 
   function handleReset() {
-    setForm({ cedula: "", primerNombre: "", segundoNombre: "", primerApellido: "", segundoApellido: "", fechaNacimiento: "", genero: "", email: "", telefono: "", direccion: "", ciudad: "", departamento: "" });
+    setForm(FORM_VACIO);
     setErrors({});
     setApiError("");
     setCedulaStatus("idle");
     setSubmitted(false);
-    setClienteId("");
+    setCreado(null);
   }
 
   function handleFieldChange(name: keyof ManagerFormData, value: string) {
@@ -170,7 +178,7 @@ export default function ManagerView() {
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={MANAGER_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel="Gestor Rodríguez" userSub="Gestor Bancario" userInitials="GR" badge="Plataforma Gestión" />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -200,13 +208,13 @@ export default function ManagerView() {
                   </div>
                   <div className="w-full rounded-xl p-4" style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)" }}>
                     <div className="text-xs mb-2 font-semibold uppercase tracking-wide" style={{ color: "#7c6fa0", fontFamily: "Instrument Sans,sans-serif" }}>Identificador Único Asignado</div>
-                    <div className="text-lg font-bold tracking-wider" style={{ color: "#a78bfa", fontFamily: "Instrument Sans,sans-serif" }}>{clienteId}</div>
-                    <div className="text-xs mt-1" style={{ color: "#7c6fa0" }}>{form.primerNombre} {form.primerApellido} · CC {form.cedula}</div>
+                    <div className="text-lg font-bold tracking-wider" style={{ color: "#a78bfa", fontFamily: "Instrument Sans,sans-serif" }} data-i18n-ignore>{creado?.idCliente}</div>
+                    <div className="text-xs mt-1" style={{ color: "#7c6fa0" }}>{creado?.nombreCompleto} · CC {creado?.cedula}</div>
                     <div className="mt-3 text-xs" style={{ color: "#c4b5fd" }}>Contraseña inicial: la misma cédula del cliente.</div>
                   </div>
                   <div className="flex gap-3 w-full">
                     <button onClick={handleReset} className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Registrar Otro</button>
-                    <button onClick={() => setSubmitted(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff" }}>Ver Detalle</button>
+                    <button onClick={() => navigate(`/gestor/clientes?cedula=${encodeURIComponent(creado?.cedula ?? "")}`)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff" }}>Ver Detalle</button>
                   </div>
                 </div>
               </div>
@@ -232,22 +240,19 @@ export default function ManagerView() {
                         onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }}
                         onBlurCapture={(ev) => { ev.currentTarget.style.boxShadow = "none"; }}
                       />
-                      {cedulaStatus === "checking" && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "rgba(168,139,250,0.5)", borderTopColor: "transparent" }} />}
                       {cedulaStatus === "ok" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold" style={{ color: "#10b981" }}>✓</span>}
                       {cedulaStatus === "error" && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: "#ef4444" }}>✕</span>}
                     </div>
                     {errors.cedula && <span className="flex items-center gap-1 text-xs mt-0.5" style={{ color: "#f87171" }}><IcoAlert />{errors.cedula}</span>}
-                    {cedulaStatus === "ok" && <span className="text-xs mt-0.5" style={{ color: "#10b981" }}>✓ Cédula válida y disponible.</span>}
+                    {cedulaStatus === "ok" && <span className="text-xs mt-0.5" style={{ color: "#10b981" }}>✓ Formato válido. La disponibilidad se confirma al registrar.</span>}
                     {!errors.cedula && cedulaStatus !== "ok" && <span className="text-xs mt-0.5" style={{ color: "#7c6fa0" }}>Solo dígitos, entre 6 y 10 caracteres.</span>}
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-semibold tracking-wide uppercase" style={{ color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>Tipo de Documento</label>
-                    <select className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none appearance-none" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.22)", color: "#f1eeff" }}>
+                    <select disabled className="w-full px-3.5 py-2.5 rounded-lg text-sm outline-none appearance-none disabled:opacity-80" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.22)", color: "#f1eeff" }}>
                       <option style={{ background: "#1a1130" }}>Cédula de Ciudadanía</option>
-                      <option style={{ background: "#1a1130" }}>Cédula de Extranjería</option>
-                      <option style={{ background: "#1a1130" }}>Pasaporte</option>
-                      <option style={{ background: "#1a1130" }}>NIT</option>
                     </select>
+                    <span className="text-xs mt-0.5" style={{ color: "#7c6fa0" }}>Por ahora el banco registra clientes con cédula de ciudadanía.</span>
                   </div>
                 </div>
               </Section>

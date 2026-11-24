@@ -13,6 +13,9 @@ public class SesionActiva {
     private Long usuarioId;
     private String dispositivo;
     private LocalDateTime fechaInicio = LocalDateTime.now();
+    private LocalDateTime ultimaActividad = LocalDateTime.now();
+    private LocalDateTime fechaCierre;
+    private String motivoCierre;
     private boolean activa = true;
 
     public Long getId() { return id; }
@@ -23,6 +26,17 @@ public class SesionActiva {
     public String getDispositivo() { return dispositivo; }
     public void setDispositivo(String dispositivo) { this.dispositivo = dispositivo; }
     public LocalDateTime getFechaInicio() { return fechaInicio; }
+    public LocalDateTime getUltimaActividad() {
+        return ultimaActividad == null ? fechaInicio : ultimaActividad;
+    }
+    public void setUltimaActividad(LocalDateTime ultimaActividad) { this.ultimaActividad = ultimaActividad; }
+    public LocalDateTime getFechaCierre() { return fechaCierre; }
+    public String getMotivoCierre() { return motivoCierre; }
     public boolean isActiva() { return activa; }
-    public void setActiva(boolean activa) { this.activa = activa; }
+
+    public void cerrar(String motivo) {
+        this.activa = false;
+        this.fechaCierre = LocalDateTime.now();
+        this.motivoCierre = motivo;
+    }
 }

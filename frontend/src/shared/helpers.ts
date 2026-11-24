@@ -1,45 +1,68 @@
-import { CEDULAS_EXISTENTES, CUENTAS_SISTEMA } from "./data";
+import type { TipoCuenta, TransaccionApi } from "./types"
 
 export function validarCedula(cedula: string): { valid: boolean; error?: string } {
-  const limpia = cedula.replace(/\D/g, "");
-  if (!limpia) return { valid: false, error: "La cédula es requerida." };
+  const limpia = cedula.replace(/\D/g, "")
+  if (!limpia) return { valid: false, error: "La cédula es requerida." }
   if (limpia.length < 6 || limpia.length > 10)
-    return { valid: false, error: "La cédula debe tener entre 6 y 10 dígitos." };
-  if (CEDULAS_EXISTENTES.includes(limpia))
-    return { valid: false, error: "Ya existe un cliente registrado con esta cédula." };
-  return { valid: true };
-}
-
-export function generarIdCliente(): string {
-  return "BX-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 5).toUpperCase();
-}
-
-export function generarNumeroCuenta(tipo: string): string {
-  const prefijo = tipo === "ahorros" ? "301" : "501";
-  const mid = Math.floor(Math.random() * 900 + 100) + "-" + Math.floor(Math.random() * 9000 + 1000);
-  const sufijo = Math.floor(Math.random() * 90 + 10);
-  return `${prefijo}-${mid}-${sufijo}`;
-}
-
-export function generarRef(): string {
-  return "REF-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+    return { valid: false, error: "La cédula debe tener entre 6 y 10 dígitos." }
+  return { valid: true }
 }
 
 export function fmtCOP(n: number): string {
-  return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(n);
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n)
 }
 
-export function fmtFecha(iso: string): string {
-  return new Date(iso).toLocaleString("es-CO", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+export function fmtFecha(iso: string | null | undefined): string {
+  if (!iso) return "No disponible"
+  return new Date(iso).toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+export function fmtFechaLarga(iso: string | null | undefined): string {
+  if (!iso) return "No disponible"
+  // Una fecha sin hora se interpreta como UTC y en Colombia mostraría el día anterior.
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(iso)
+  return new Intl.DateTimeFormat("es-CO", { dateStyle: "long" }).format(fecha)
 }
 
 export function formatMonto(val: string): string {
-  const digits = val.replace(/\D/g, "");
-  return digits ? Number(digits).toLocaleString("es-CO") : "";
+  const digits = val.replace(/\D/g, "")
+  return digits ? Number(digits).toLocaleString("es-CO") : ""
 }
 
-export function buscarCuentaDestino(num: string, cuentasPropias: { numero: string; tipo: string; saldo: number }[], nombreCliente: string) {
-  const propia = cuentasPropias.find((c) => c.numero === num);
-  if (propia) return { nombre: nombreCliente, tipo: propia.tipo, activa: true };
-  return CUENTAS_SISTEMA[num] ?? null;
+export function parseMonto(val: string): number {
+  return Number(val.replace(/\D/g, "")) || 0
+}
+
+export function etiquetaTipoCuenta(tipo: TipoCuenta | string): string {
+  return tipo === "CORRIENTE" ? "Cuenta corriente" : "Cuenta de ahorros"
+}
+
+export const PATRON_CUENTA = /^(301|501)-\d{3}-\d{4}-\d{2}$/
+
+export function normalizarNumeroCuenta(valor: string): string {
+  const digits = valor.replace(/\D/g, "").slice(0, 12)
+  const partes = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 10), digits.slice(10, 12)]
+  return partes.filter(Boolean).join("-")
+}
+
+export function etiquetaTransaccion(tipo: TransaccionApi["tipo"]): string {
+  if (tipo === "TRANSFERENCIA") return "Transferencia"
+  if (tipo === "RETIRO") return "Retiro"
+  return "Consignación"
+}
+
+/** Indica si el movimiento resta saldo de la cuenta consultada. */
+export function esDebito(transaccion: TransaccionApi, numeroCuenta: string): boolean {
+  return transaccion.cuentaOrigen === numeroCuenta
 }

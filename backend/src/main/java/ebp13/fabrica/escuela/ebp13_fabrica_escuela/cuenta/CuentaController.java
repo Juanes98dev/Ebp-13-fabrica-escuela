@@ -1,18 +1,21 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta;
 
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaDestinoResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaResponse;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.UsuarioSesion;
+import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.List;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 
 @RestController
 @RequestMapping("/api/cuentas")
@@ -25,28 +28,44 @@ public class CuentaController {
     }
 
     @PostMapping
-    public ResponseEntity<CuentaResponse> crear(@RequestBody CuentaRequest request) {
-        CuentaResponse response = cuentaService.crear(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    public ResponseEntity<CuentaResponse> crear(
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario,
+            @Valid @RequestBody CuentaRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(cuentaService.crear(usuario, request));
+    }
+
+    @GetMapping("/mias")
+    public ResponseEntity<List<CuentaResponse>> misCuentas(
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario) {
+        return ResponseEntity.ok(cuentaService.listarPorCliente(usuario, usuario.id()));
     }
 
     @GetMapping("/{numero}")
     public ResponseEntity<CuentaResponse> consultarPorNumero(
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario,
             @PathVariable String numero) {
-        return ResponseEntity.ok(cuentaService.consultarPorNumero(numero));
+        return ResponseEntity.ok(cuentaService.consultarPorNumero(usuario, numero));
+    }
+
+    @GetMapping("/{numero}/destino")
+    public ResponseEntity<CuentaDestinoResponse> consultarDestino(
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario,
+            @PathVariable String numero) {
+        return ResponseEntity.ok(cuentaService.consultarDestino(usuario, numero));
     }
 
     @GetMapping("/cliente/{clienteId}")
     public ResponseEntity<List<CuentaResponse>> listarPorCliente(
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario,
             @PathVariable Long clienteId) {
-        return ResponseEntity.ok(cuentaService.listarPorCliente(clienteId));
+        return ResponseEntity.ok(cuentaService.listarPorCliente(usuario, clienteId));
     }
 
     @PatchMapping("/{numero}/desactivar")
     public ResponseEntity<CuentaResponse> desactivar(
-            @PathVariable String numero,
-            @RequestHeader(value = "X-Rol", defaultValue = "") String rol,
-            @RequestHeader(value = "X-Usuario-Id", defaultValue = "0") Long gestorId) {
-        return ResponseEntity.ok(cuentaService.desactivar(numero, rol, gestorId));
+            @RequestAttribute(UsuarioSesion.ATRIBUTO) UsuarioSesion usuario,
+            @PathVariable String numero) {
+        usuario.exigirGestor();
+        return ResponseEntity.ok(cuentaService.desactivar(usuario, numero));
     }
 }

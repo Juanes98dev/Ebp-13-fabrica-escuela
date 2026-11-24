@@ -9,13 +9,10 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import java.math.BigDecimal;
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
 
 @Entity
 public class Transaccion {
-
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,17 +36,42 @@ public class Transaccion {
 
     private String descripcion;
 
+    private String titularOrigen;
+    private String titularDestino;
+    private Long realizadaPorId;
+
     public Transaccion() {
     }
 
     @PrePersist
     private void inicializarDatos() {
-        if (referencia == null || referencia.isBlank()) {
-            referencia = "REF-%06d".formatted(RANDOM.nextInt(1_000_000));
-        }
         if (fecha == null) {
             fecha = LocalDateTime.now();
         }
+    }
+
+    public String getTitularOrigen() {
+        return titularOrigen;
+    }
+
+    public void setTitularOrigen(String titularOrigen) {
+        this.titularOrigen = titularOrigen;
+    }
+
+    public String getTitularDestino() {
+        return titularDestino;
+    }
+
+    public void setTitularDestino(String titularDestino) {
+        this.titularDestino = titularDestino;
+    }
+
+    public Long getRealizadaPorId() {
+        return realizadaPorId;
+    }
+
+    public void setRealizadaPorId(Long realizadaPorId) {
+        this.realizadaPorId = realizadaPorId;
     }
 
     public Long getId() {

@@ -5,6 +5,7 @@ import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.ClienteRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.SesionActiva;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.MailService;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.PasswordPolicy;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -18,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OtpService {
+    private static final int MAX_INTENTOS = 3;
+    private static final String CODIGO_INVALIDO = "El código no es válido";
+
     private final ClienteRepository clientes;
     private final CodigoRecuperacionRepository codigos;
     private final SesionRepository sesiones;
@@ -34,14 +38,14 @@ public class OtpService {
 
     @Transactional
     public Map<String, String> solicitar(String correo) {
-        String normalized = correo == null ? "" : correo.trim().toLowerCase();
+        String normalized = normalizar(correo);
         LocalDateTime desde = LocalDateTime.now().minusHours(1);
         if (codigos.findByCorreoAndCreadoEnAfter(normalized, desde).size() >= 3) {
             throw new Sprint3Exception(HttpStatus.TOO_MANY_REQUESTS,
                     "Ha superado el número de solicitudes, intente más tarde");
         }
-        Cliente cliente = clientes.findByEmailIgnoreCase(normalized).orElse(null);
-        if (cliente != null) {
+        Cliente cliente = clientes.findFirstByEmailIgnoreCase(normalized).orElse(null);
+        if (cliente != null && cliente.isActivo()) {
             String code = "%06d".formatted(random.nextInt(1_000_000));
             CodigoRecuperacion registro = new CodigoRecuperacion();
             registro.setUsuarioId(cliente.getId());
@@ -54,38 +58,54 @@ public class OtpService {
         return Map.of("mensaje", "Si el correo está registrado, recibirá un código de verificación");
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = Sprint3Exception.class)
+    public Map<String, String> verificar(String correo, String codigo) {
+        validarCodigo(normalizar(correo), codigo);
+        return Map.of("mensaje", "Código verificado");
+    }
+
+    @Transactional(noRollbackFor = Sprint3Exception.class)
     public Map<String, String> restablecer(String correo, String codigo, String password) {
-        String normalized = correo == null ? "" : correo.trim().toLowerCase();
-        CodigoRecuperacion registro = codigos.findTopByCorreoOrderByExpiraEnDesc(normalized).orElse(null);
-        if (registro == null || registro.isUsado() || registro.getIntentosFallidos() >= 3) {
-            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "El código no es válido");
+        CodigoRecuperacion registro = validarCodigo(normalizar(correo), codigo);
+        PasswordPolicy.validar(password);
+        Cliente cliente = clientes.findById(registro.getUsuarioId()).orElseThrow(
+                () -> new Sprint3Exception(HttpStatus.BAD_REQUEST, CODIGO_INVALIDO));
+        cliente.setPasswordHash(BCrypt.hashpw(password, BCrypt.gensalt()));
+        cliente.setIntentosFallidos(0);
+        cliente.setBloqueadoHasta(null);
+        registro.setUsado(true);
+        for (SesionActiva sesion : sesiones.findByUsuarioIdAndActivaTrue(cliente.getId())) {
+            sesion.cerrar("Restablecimiento de contraseña");
+        }
+        mail.send(cliente.getEmail(), "Su contraseña de Banco X fue restablecida",
+                "Su contraseña fue restablecida y todas las sesiones activas fueron cerradas.");
+        return Map.of("mensaje", "Contraseña restablecida correctamente");
+    }
+
+    private CodigoRecuperacion validarCodigo(String correo, String codigo) {
+        CodigoRecuperacion registro = codigos.findTopByCorreoOrderByCreadoEnDesc(correo).orElse(null);
+        if (registro == null || registro.isUsado() || registro.getIntentosFallidos() >= MAX_INTENTOS) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, CODIGO_INVALIDO);
         }
         if (LocalDateTime.now().isAfter(registro.getExpiraEn())) {
             throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "El código ha vencido, solicite uno nuevo");
         }
-        if (!registro.getCodigoHash().equals(hash(codigo == null ? "" : codigo))) {
+        if (!registro.getCodigoHash().equals(hash(codigo == null ? "" : codigo.trim()))) {
             registro.setIntentosFallidos(registro.getIntentosFallidos() + 1);
-            if (registro.getIntentosFallidos() >= 3) {
+            int restantes = MAX_INTENTOS - registro.getIntentosFallidos();
+            if (restantes <= 0) {
                 registro.setUsado(true);
+                throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
+                        "El código fue invalidado por exceder los intentos. Solicite uno nuevo");
             }
-            codigos.save(registro);
-            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "El código no es válido");
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
+                    CODIGO_INVALIDO + ". Intentos restantes: " + restantes);
         }
-        Cliente cliente = clientes.findById(registro.getUsuarioId()).orElseThrow(
-                () -> new Sprint3Exception(HttpStatus.BAD_REQUEST, "El código no es válido"));
-        if (password == null || password.length() < 8) {
-            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "La contraseña debe tener al menos 8 caracteres");
-        }
-        cliente.setPasswordHash(BCrypt.hashpw(password, BCrypt.gensalt()));
-        registro.setUsado(true);
-        clientes.save(cliente);
-        codigos.save(registro);
-        for (SesionActiva sesion : sesiones.findByUsuarioIdAndActivaTrue(cliente.getId())) {
-            sesion.setActiva(false);
-            sesiones.save(sesion);
-        }
-        return Map.of("mensaje", "Contraseña restablecida correctamente");
+        return registro;
+    }
+
+    private String normalizar(String correo) {
+        return correo == null ? "" : correo.trim().toLowerCase();
     }
 
     private String hash(String value) {

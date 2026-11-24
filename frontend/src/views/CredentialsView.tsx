@@ -1,136 +1,88 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import Sidebar from "../shared/Sidebar";
+import { apiRequest, errorMessage } from "../shared/api";
+import { getSession } from "../shared/session";
 import {
   IcoAlert,
   IcoCheck,
   IcoChevron,
   IcoClock,
-  IcoCuentas,
-  IcoDash,
-  IcoExtractos,
   IcoEye,
   IcoInfo,
-  IcoInversiones,
   IcoLock,
   IcoMail,
-  IcoPagos,
-  IcoPrestamos,
   IcoShield,
-  IcoTransfer,
   IcoUser,
 } from "../shared/icons";
-import { CLIENTE_ACTIVO } from "../shared/data";
 
-const CLIENT_NAV = [
-  { id: "inicio", label: "Inicio", icon: <IcoDash /> },
-  { id: "cuentas", label: "Mis Cuentas", icon: <IcoCuentas /> },
-  { id: "transferencias", label: "Transferencias", icon: <IcoTransfer /> },
-  { id: "pagos", label: "Pagos", icon: <IcoPagos /> },
-  { id: "prestamos", label: "Préstamos", icon: <IcoPrestamos /> },
-  { id: "inversiones", label: "Inversiones", icon: <IcoInversiones /> },
-  { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
-  { id: "perfil", label: "Perfil y seguridad", icon: <IcoUser /> },
-];
-
-const CURRENT_PASSWORD = "";
-const TAKEN_USERNAMES: string[] = [];
-
-type UsernameStatus = "idle" | "checking" | "available" | "taken";
+type CampoError = "currentPassword" | "newPassword" | "confirmPassword" | "form";
 
 export default function CredentialsView() {
-  const [activeNav, setActiveNav] = useState("perfil");
-  const [username, setUsername] = useState("valentina.morales");
+  const cedula = getSession()?.cedula ?? "";
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Partial<Record<CampoError, string>>>({});
   const [success, setSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const passwordRules = useMemo(() => [
-    { label: "Mínimo 8 caracteres", valid: newPassword.length >= 8 },
+    { label: "Entre 8 y 64 caracteres", valid: newPassword.length >= 8 && newPassword.length <= 64 },
     { label: "Una letra mayúscula", valid: /[A-Z]/.test(newPassword) },
     { label: "Un número", valid: /\d/.test(newPassword) },
     { label: "Un carácter especial", valid: /[^A-Za-z0-9]/.test(newPassword) },
   ], [newPassword]);
 
   const passwordValid = passwordRules.every((rule) => rule.valid);
-  const usernameChanged = username !== "valentina.morales";
 
-  function handleUsernameChange(value: string) {
-    setUsername(value);
-    setUsernameStatus("idle");
+  function clearError(campo: CampoError) {
+    setErrors((current) => ({ ...current, [campo]: undefined, form: undefined }));
     setSuccess(false);
-    setErrors((current) => ({ ...current, username: "" }));
   }
 
-  function checkUsername() {
-    const normalized = username.trim().toLowerCase();
-    if (normalized === "valentina.morales") {
-      setUsernameStatus("idle");
-      return;
-    }
-    if (!/^[a-zA-Z0-9._-]{5,24}$/.test(normalized)) {
-      setErrors((current) => ({ ...current, username: "Use entre 5 y 24 caracteres sin espacios." }));
-      return;
-    }
-    setUsernameStatus("checking");
-    window.setTimeout(() => {
-      const taken = TAKEN_USERNAMES.includes(normalized);
-      setUsernameStatus(taken ? "taken" : "available");
-      if (taken) setErrors((current) => ({ ...current, username: "El nombre de usuario no está disponible" }));
-    }, 500);
-  }
-
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    const nextErrors: Record<string, string> = {};
-    const normalizedUsername = username.trim().toLowerCase();
+    const nextErrors: Partial<Record<CampoError, string>> = {};
 
-    if (currentPassword !== CURRENT_PASSWORD) {
-      nextErrors.currentPassword = "La contraseña actual es incorrecta";
-    }
-    if (!usernameChanged && !newPassword) {
-      nextErrors.form = "Modifica el nombre de usuario o ingresa una nueva contraseña.";
-    }
-    if (usernameChanged && !/^[a-zA-Z0-9._-]{5,24}$/.test(normalizedUsername)) {
-      nextErrors.username = "Use entre 5 y 24 caracteres sin espacios.";
-    } else if (usernameChanged && TAKEN_USERNAMES.includes(normalizedUsername)) {
-      nextErrors.username = "El nombre de usuario no está disponible";
-      setUsernameStatus("taken");
-    }
-    if (newPassword && !passwordValid) {
-      nextErrors.newPassword = "La nueva contraseña no cumple todos los requisitos.";
-    }
-    if (newPassword && confirmPassword !== newPassword) {
-      nextErrors.confirmPassword = "Las contraseñas no coinciden.";
-    }
+    if (!currentPassword) nextErrors.currentPassword = "Ingresa tu contraseña actual";
+    if (!newPassword) nextErrors.newPassword = "Ingresa la nueva contraseña";
+    else if (!passwordValid) nextErrors.newPassword = "La nueva contraseña no cumple todos los requisitos.";
+    else if (newPassword === currentPassword) nextErrors.newPassword = "La nueva contraseña debe ser diferente a la actual";
+    if (newPassword && confirmPassword !== newPassword) nextErrors.confirmPassword = "Las contraseñas no coinciden.";
 
     setErrors(nextErrors);
     setSuccess(false);
     if (Object.keys(nextErrors).length > 0) return;
 
     setIsSaving(true);
-    window.setTimeout(() => {
-      setIsSaving(false);
+    try {
+      await apiRequest("/api/auth/cambiar-password", {
+        method: "POST",
+        body: JSON.stringify({ passwordActual: currentPassword, passwordNueva: newPassword }),
+      });
       setSuccess(true);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setUsernameStatus("idle");
-    }, 700);
+    } catch (caught) {
+      const mensaje = errorMessage(caught, "No fue posible actualizar la contraseña");
+      const texto = mensaje.toLowerCase();
+      if (texto.includes("actual no es correcta")) setErrors({ currentPassword: mensaje });
+      else if (texto.includes("contraseña")) setErrors({ newPassword: mensaje });
+      else setErrors({ form: mensaje });
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function resetForm() {
-    setUsername("valentina.morales");
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
     setErrors({});
-    setUsernameStatus("idle");
     setSuccess(false);
   }
 
@@ -139,15 +91,7 @@ export default function CredentialsView() {
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={CLIENT_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel={CLIENTE_ACTIVO.nombre}
-        userSub={`CC ${CLIENTE_ACTIVO.cedula}`}
-        userInitials={CLIENTE_ACTIVO.iniciales}
-        badge="Banca Personal"
-      />
+      <Sidebar variant="cliente" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10 bg-bg-base/95 border-b border-border backdrop-blur">
@@ -156,7 +100,6 @@ export default function CredentialsView() {
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-success/10 text-emerald-400 border border-success/25"><IcoShield />Sesión protegida</span>
-            
           </div>
         </div>
 
@@ -164,15 +107,17 @@ export default function CredentialsView() {
           <div className="mb-7">
             <span className="text-xs font-semibold uppercase tracking-wider px-2 py-1 rounded-md mb-2 inline-block bg-accent/15 text-purple-300 font-display">Centro de seguridad</span>
             <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">Credenciales de acceso</h1>
-            <p className="text-sm text-text-muted">Actualiza tu nombre de usuario o contraseña para mantener protegida tu cuenta.</p>
+            <p className="text-sm text-text-muted">Actualiza tu contraseña para mantener protegida tu cuenta.</p>
           </div>
 
           {success && (
             <div role="status" className="flex items-start gap-4 rounded-2xl px-5 py-4 mb-5 bg-success/10 border border-success/30">
               <div className="flex items-center justify-center w-10 h-10 rounded-full shrink-0 bg-success/15 text-emerald-400"><IcoCheck /></div>
               <div className="flex-1">
-                <div className="text-sm font-bold text-emerald-400">Credenciales actualizadas correctamente</div>
-                <p className="text-xs text-text-muted mt-1">Enviamos una notificación de seguridad a {CLIENTE_ACTIVO.email} con los detalles del cambio.</p>
+                <div className="text-sm font-bold text-emerald-400">Contraseña actualizada correctamente</div>
+                <p className="text-xs text-text-muted mt-1">
+                  Cerramos tus otras sesiones abiertas y enviamos una notificación de seguridad a tu correo registrado.
+                </p>
               </div>
               <span className="flex items-center gap-1.5 text-xs text-text-muted"><IcoClock />Ahora</span>
             </div>
@@ -184,8 +129,8 @@ export default function CredentialsView() {
                 <div className="flex items-center gap-3 mb-5">
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoUser /></div>
                   <div>
-                    <h2 className="text-sm font-semibold text-text-primary font-display">Nombre de usuario</h2>
-                    <p className="text-xs text-text-muted mt-0.5">Será el identificador que usarás para iniciar sesión.</p>
+                    <h2 className="text-sm font-semibold text-text-primary font-display">Usuario de acceso</h2>
+                    <p className="text-xs text-text-muted mt-0.5">Inicias sesión con tu número de cédula.</p>
                   </div>
                 </div>
 
@@ -193,23 +138,16 @@ export default function CredentialsView() {
                 <div className="relative">
                   <input
                     id="username"
-                    value={username}
-                    onChange={(event) => handleUsernameChange(event.target.value)}
-                    onBlur={checkUsername}
-                    aria-invalid={Boolean(errors.username)}
+                    value={cedula}
+                    readOnly
+                    aria-readonly="true"
                     autoComplete="username"
-                    className={`${inputClass(Boolean(errors.username))} pr-28`}
+                    data-i18n-ignore
+                    className="w-full px-3.5 py-3 pr-11 rounded-xl text-sm outline-none bg-black/15 text-text-muted border border-border cursor-not-allowed"
                   />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    {usernameStatus === "checking" && <span className="flex items-center gap-1.5 text-xs text-text-muted"><span className="w-3.5 h-3.5 rounded-full border-2 border-purple-300/40 border-t-purple-300 animate-spin" />Validando</span>}
-                    {usernameStatus === "available" && <span className="flex items-center gap-1 text-xs text-emerald-400"><IcoCheck />Disponible</span>}
-                  </div>
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted"><IcoLock /></span>
                 </div>
-                {errors.username ? (
-                  <span className="flex items-center gap-1.5 text-xs mt-2 text-red-400"><IcoAlert />{errors.username}</span>
-                ) : (
-                  <span className="block text-xs mt-2 text-text-muted">Entre 5 y 24 caracteres. Puedes usar letras, números, puntos, guiones y guion bajo.</span>
-                )}
+                <span className="block text-xs mt-2 text-text-muted">El usuario corresponde a tu documento y no puede modificarse.</span>
               </section>
 
               <section className="rounded-2xl p-6 bg-sidebar border border-border">
@@ -217,7 +155,7 @@ export default function CredentialsView() {
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-purple-600/15 text-purple-300"><IcoLock /></div>
                   <div>
                     <h2 className="text-sm font-semibold text-text-primary font-display">Contraseña</h2>
-                    <p className="text-xs text-text-muted mt-0.5">Valida tu identidad antes de guardar cualquier cambio.</p>
+                    <p className="text-xs text-text-muted mt-0.5">Valida tu identidad antes de guardar el cambio.</p>
                   </div>
                 </div>
 
@@ -231,8 +169,7 @@ export default function CredentialsView() {
                         value={currentPassword}
                         onChange={(event) => {
                           setCurrentPassword(event.target.value);
-                          setErrors((current) => ({ ...current, currentPassword: "" }));
-                          setSuccess(false);
+                          clearError("currentPassword");
                         }}
                         autoComplete="current-password"
                         aria-invalid={Boolean(errors.currentPassword)}
@@ -248,16 +185,16 @@ export default function CredentialsView() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="new-password" className="block text-xs font-semibold tracking-wide uppercase mb-2 text-purple-200 font-display">Nueva contraseña</label>
+                      <label htmlFor="new-password" className="block text-xs font-semibold tracking-wide uppercase mb-2 text-purple-200 font-display">Nueva contraseña <span className="text-accent">*</span></label>
                       <div className="relative">
                         <input
                           id="new-password"
                           type={showNew ? "text" : "password"}
                           value={newPassword}
+                          maxLength={64}
                           onChange={(event) => {
                             setNewPassword(event.target.value);
-                            setErrors((current) => ({ ...current, newPassword: "" }));
-                            setSuccess(false);
+                            clearError("newPassword");
                           }}
                           autoComplete="new-password"
                           aria-invalid={Boolean(errors.newPassword)}
@@ -270,14 +207,15 @@ export default function CredentialsView() {
                       </div>
                     </div>
                     <div>
-                      <label htmlFor="confirm-password" className="block text-xs font-semibold tracking-wide uppercase mb-2 text-purple-200 font-display">Confirmar contraseña</label>
+                      <label htmlFor="confirm-password" className="block text-xs font-semibold tracking-wide uppercase mb-2 text-purple-200 font-display">Confirmar contraseña <span className="text-accent">*</span></label>
                       <input
                         id="confirm-password"
                         type="password"
                         value={confirmPassword}
+                        maxLength={64}
                         onChange={(event) => {
                           setConfirmPassword(event.target.value);
-                          setErrors((current) => ({ ...current, confirmPassword: "" }));
+                          clearError("confirmPassword");
                         }}
                         autoComplete="new-password"
                         aria-invalid={Boolean(errors.confirmPassword)}
@@ -311,17 +249,17 @@ export default function CredentialsView() {
               </section>
 
               {errors.form && (
-                <div className="flex items-center gap-2 rounded-xl px-4 py-3 bg-danger/10 border border-danger/25 text-sm text-red-400">
+                <div role="alert" className="flex items-center gap-2 rounded-xl px-4 py-3 bg-danger/10 border border-danger/25 text-sm text-red-400">
                   <IcoAlert />{errors.form}
                 </div>
               )}
 
               <div className="flex items-center justify-between pb-6">
-                <button type="button" onClick={resetForm} className="px-5 py-2.5 rounded-xl text-sm font-medium text-text-muted border border-border hover:text-purple-200 hover:border-purple-400/40">
-                  Cancelar
+                <button type="button" onClick={resetForm} disabled={isSaving} className="px-5 py-2.5 rounded-xl text-sm font-medium text-text-muted border border-border hover:text-purple-200 hover:border-purple-400/40 disabled:opacity-50">
+                  Limpiar
                 </button>
                 <button type="submit" disabled={isSaving} className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-br from-purple-600 to-accent shadow-lg shadow-purple-600/25 transition-all hover:-translate-y-0.5 disabled:opacity-60 disabled:translate-y-0">
-                  {isSaving ? <><span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />Actualizando...</> : <><IcoShield />Actualizar credenciales</>}
+                  {isSaving ? <><span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />Actualizando...</> : <><IcoShield />Actualizar contraseña</>}
                 </button>
               </div>
             </form>
@@ -330,21 +268,20 @@ export default function CredentialsView() {
               <div className="rounded-2xl p-5 bg-sidebar border border-border">
                 <div className="flex items-center justify-center w-11 h-11 rounded-xl mb-4 bg-success/10 text-emerald-400"><IcoShield /></div>
                 <h2 className="text-sm font-semibold text-text-primary font-display">Protección de credenciales</h2>
-                <p className="text-xs text-text-muted leading-relaxed mt-2">Tus contraseñas se procesan de forma segura y se almacenan mediante hash. Banco X nunca puede consultar su contenido.</p>
+                <p className="text-xs text-text-muted leading-relaxed mt-2">Tus contraseñas se almacenan mediante hash. Banco X nunca puede consultar su contenido.</p>
               </div>
 
               <div className="rounded-2xl p-5 bg-sidebar border border-border">
                 <div className="flex items-center justify-center w-11 h-11 rounded-xl mb-4 bg-purple-600/15 text-purple-300"><IcoMail /></div>
                 <h2 className="text-sm font-semibold text-text-primary font-display">Notificación por correo</h2>
-                <p className="text-xs text-text-muted leading-relaxed mt-2">Después del cambio enviaremos una alerta a:</p>
-                <div className="text-xs font-medium text-purple-200 mt-3 break-all">{CLIENTE_ACTIVO.email}</div>
+                <p className="text-xs text-text-muted leading-relaxed mt-2">Después del cambio enviaremos una alerta a tu correo registrado y cerraremos las demás sesiones abiertas.</p>
+                <Link to="/perfil/sesiones" className="inline-block text-xs font-semibold text-purple-300 hover:underline mt-3">Ver mis sesiones</Link>
               </div>
 
               <div className="flex items-start gap-2.5 rounded-xl p-4 bg-warn/5 border border-warn/20">
                 <span className="text-amber-400 shrink-0 mt-0.5"><IcoInfo /></span>
                 <p className="text-xs text-text-muted leading-relaxed">Nunca compartas tu contraseña. Banco X no la solicitará por correo, llamada o mensaje.</p>
               </div>
-
             </aside>
           </div>
         </div>

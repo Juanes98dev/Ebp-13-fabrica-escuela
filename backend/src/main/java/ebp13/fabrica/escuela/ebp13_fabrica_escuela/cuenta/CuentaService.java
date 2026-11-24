@@ -1,19 +1,22 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta;
 
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.Cliente;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.ClienteRepository;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteInactivoException;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cliente.exception.ClienteNoEncontradoException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaDestinoResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaRequest;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.dto.CuentaResponse;
 import ebp13.fabrica.escuela.ebp13_fabrica_escuela.cuenta.exception.CuentaNoEncontradaException;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.sesion.UsuarioSesion;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.tarjeta.EstadoTarjeta;
+import ebp13.fabrica.escuela.ebp13_fabrica_escuela.tarjeta.TarjetaRepository;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.List;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.tarjeta.TarjetaRepository;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.AuditoriaRepository;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.auditoria.RegistroAuditoria;
-import ebp13.fabrica.escuela.ebp13_fabrica_escuela.shared.exception.Sprint3Exception;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,82 +43,94 @@ public class CuentaService {
     }
 
     @Transactional
-    public CuentaResponse crear(CuentaRequest request) {
-        Cliente cliente = clienteRepository.findById(request.getClienteId())
-                .orElseThrow(() -> new ClienteNoEncontradoException(
-                        "No existe el cliente con id " + request.getClienteId()));
-
+    public CuentaResponse crear(UsuarioSesion usuario, CuentaRequest request) {
+        Long clienteId = usuario.esGestor() ? request.clienteId() : usuario.id();
+        if (clienteId == null) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "Debe indicar el cliente titular de la cuenta");
+        }
+        Cliente cliente = clienteRepository.findById(clienteId)
+                .filter(item -> !UsuarioSesion.ROL_GESTOR.equalsIgnoreCase(item.getRol()))
+                .orElseThrow(() -> new ClienteNoEncontradoException("No existe el cliente con id " + clienteId));
         if (!cliente.isActivo()) {
-            throw new ClienteInactivoException(
-                    "El cliente con id " + request.getClienteId() + " está inactivo");
+            throw new ClienteInactivoException("El cliente está inactivo y no puede abrir cuentas");
         }
 
         Cuenta cuenta = new Cuenta();
-        cuenta.setNumeroCuenta(generarNumeroCuenta(request.getTipo()));
-        cuenta.setTipo(request.getTipo());
+        cuenta.setNumeroCuenta(generarNumeroCuenta(request.tipo()));
+        cuenta.setTipo(request.tipo());
         cuenta.setSaldo(BigDecimal.ZERO);
         cuenta.setActiva(true);
         cuenta.setCliente(cliente);
-
-        return toResponse(cuentaRepository.save(cuenta));
+        cuenta = cuentaRepository.save(cuenta);
+        auditoriaRepository.save(new RegistroAuditoria(usuario.id(), usuario.rol(), "CREAR_CUENTA",
+                "CUENTA", cuenta.getId().toString(), null, cuenta.getNumeroCuenta()));
+        return toResponse(cuenta);
     }
 
     @Transactional
-    public CuentaResponse desactivar(String numero, String rol, Long gestorId) {
-        if (!"GESTOR".equalsIgnoreCase(rol)) {
-            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "Solo disponible para gestor");
+    public CuentaResponse desactivar(UsuarioSesion gestor, String numero) {
+        Cuenta cuenta = buscar(numero);
+        if (!cuenta.isActiva()) {
+            throw new Sprint3Exception(HttpStatus.BAD_REQUEST, "La cuenta ya está inactiva");
         }
-        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(numero).orElseThrow(
-                () -> new CuentaNoEncontradaException("No existe la cuenta con número " + numero));
         if (cuenta.getSaldo().compareTo(BigDecimal.ZERO) > 0) {
             throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
                     "La cuenta tiene saldo disponible; debe retirarse o transferirse antes de desactivarla");
         }
-        boolean tarjetaActiva = tarjetaRepository.findByCuenta_IdAndEstadoNot(cuenta.getId(), "eliminada")
-                .stream()
-                .anyMatch(t -> !"eliminada".equals(t.getEstado()) && !"rechazada".equals(t.getEstado()));
-        if (tarjetaActiva) {
+        if (tarjetaRepository.countByCuenta_IdAndEstadoIn(cuenta.getId(), EstadoTarjeta.VIGENTES) > 0) {
             throw new Sprint3Exception(HttpStatus.BAD_REQUEST,
-                    "Debe eliminar las tarjetas activas asociadas a la cuenta");
+                    "Debe eliminar las tarjetas asociadas a la cuenta antes de desactivarla");
         }
         cuenta.setActiva(false);
-        cuenta = cuentaRepository.save(cuenta);
-        auditoriaRepository.save(new RegistroAuditoria(gestorId, "GESTOR", "DESACTIVAR_CUENTA",
+        auditoriaRepository.save(new RegistroAuditoria(gestor.id(), gestor.rol(), "DESACTIVAR_CUENTA",
                 "CUENTA", cuenta.getId().toString(), "activa", "inactiva"));
         return toResponse(cuenta);
     }
 
     @Transactional(readOnly = true)
-    public CuentaResponse consultarPorNumero(String numero) {
-        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(numero)
-                .orElseThrow(() -> new CuentaNoEncontradaException(
-                        "No existe la cuenta con número " + numero));
+    public CuentaResponse consultarPorNumero(UsuarioSesion usuario, String numero) {
+        Cuenta cuenta = buscar(numero);
+        validarAcceso(usuario, cuenta);
         return toResponse(cuenta);
     }
 
     @Transactional(readOnly = true)
-    public List<CuentaResponse> listarPorCliente(Long clienteId) {
-        if (!clienteRepository.existsById(clienteId)) {
-            throw new ClienteNoEncontradoException(
-                    "No existe el cliente con id " + clienteId);
-        }
+    public CuentaDestinoResponse consultarDestino(UsuarioSesion usuario, String numero) {
+        Cuenta cuenta = buscar(numero);
+        return new CuentaDestinoResponse(cuenta.getNumeroCuenta(), cuenta.getTipo(), cuenta.isActiva(),
+                enmascararNombre(cuenta.getCliente()), cuenta.perteneceA(usuario.id()));
+    }
 
-        return cuentaRepository.findByCliente_Id(clienteId)
+    @Transactional(readOnly = true)
+    public List<CuentaResponse> listarPorCliente(UsuarioSesion usuario, Long clienteId) {
+        if (!usuario.esGestor() && !usuario.id().equals(clienteId)) {
+            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "No tiene permisos para consultar estas cuentas");
+        }
+        if (!clienteRepository.existsById(clienteId)) {
+            throw new ClienteNoEncontradoException("No existe el cliente con id " + clienteId);
+        }
+        return cuentaRepository.findByCliente_IdOrderByIdAsc(clienteId)
                 .stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    private String generarNumeroCuenta(TipoCuenta tipo) {
-        String prefijo;
-        if (tipo == TipoCuenta.AHORROS) {
-            prefijo = "301";
-        } else if (tipo == TipoCuenta.CORRIENTE) {
-            prefijo = "501";
-        } else {
-            throw new IllegalArgumentException("El tipo de cuenta es obligatorio");
+    /**
+     * Garantiza que el usuario puede ver la cuenta: debe ser su titular o un gestor.
+     */
+    public void validarAcceso(UsuarioSesion usuario, Cuenta cuenta) {
+        if (!usuario.esGestor() && !cuenta.perteneceA(usuario.id())) {
+            throw new Sprint3Exception(HttpStatus.FORBIDDEN, "No tiene permisos para consultar esta cuenta");
         }
+    }
 
+    private Cuenta buscar(String numero) {
+        return cuentaRepository.findByNumeroCuenta(numero == null ? "" : numero.trim())
+                .orElseThrow(() -> new CuentaNoEncontradaException("No existe la cuenta con número " + numero));
+    }
+
+    private String generarNumeroCuenta(TipoCuenta tipo) {
+        String prefijo = tipo == TipoCuenta.AHORROS ? "301" : "501";
         String numero;
         do {
             numero = "%s-%03d-%04d-%02d".formatted(
@@ -127,14 +142,24 @@ public class CuentaService {
         return numero;
     }
 
+    public static String enmascararNombre(Cliente cliente) {
+        String nombre = cliente.getPrimerNombre() == null ? "" : cliente.getPrimerNombre().trim();
+        String apellido = cliente.getPrimerApellido() == null ? "" : cliente.getPrimerApellido().trim();
+        return apellido.isEmpty() ? nombre : nombre + " " + apellido.charAt(0) + ".";
+    }
+
     private CuentaResponse toResponse(Cuenta cuenta) {
-        CuentaResponse response = new CuentaResponse();
-        response.setId(cuenta.getId());
-        response.setNumeroCuenta(cuenta.getNumeroCuenta());
-        response.setTipo(cuenta.getTipo());
-        response.setSaldo(cuenta.getSaldo());
-        response.setActiva(cuenta.isActiva());
-        response.setIdCliente(cuenta.getCliente().getIdCliente());
-        return response;
+        Cliente cliente = cuenta.getCliente();
+        return new CuentaResponse(
+                cuenta.getId(),
+                cuenta.getNumeroCuenta(),
+                cuenta.getTipo(),
+                cuenta.getSaldo(),
+                cuenta.isActiva(),
+                cliente.getId(),
+                cliente.getIdCliente(),
+                cliente.getNombreCompleto(),
+                cuenta.getFechaApertura(),
+                tarjetaRepository.countByCuenta_IdAndEstadoIn(cuenta.getId(), EstadoTarjeta.VIGENTES));
     }
 }

@@ -1,19 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import Sidebar from "../shared/Sidebar";
-import { IcoDash, IcoCuentas, IcoTransfer, IcoPagos, IcoPrestamos, IcoInversiones, IcoExtractos, IcoAlert, IcoChevron, IcoInfo, IcoShield, IcoStar } from "../shared/icons";
-import { generarNumeroCuenta } from "../shared/helpers";
-import { CLIENTE_ACTIVO } from "../shared/data";
-
-const CLIENT_NAV = [
-  { id: "inicio", label: "Inicio", icon: <IcoDash /> },
-  { id: "cuentas", label: "Mis Cuentas", icon: <IcoCuentas /> },
-  { id: "transferencias", label: "Transferencias", icon: <IcoTransfer /> },
-  { id: "pagos", label: "Pagos", icon: <IcoPagos /> },
-  { id: "prestamos", label: "Préstamos", icon: <IcoPrestamos /> },
-  { id: "inversiones", label: "Inversiones", icon: <IcoInversiones /> },
-  { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
-];
+import { IcoCuentas, IcoChevron, IcoInfo, IcoShield, IcoStar } from "../shared/icons";
+import { apiRequest, errorMessage } from "../shared/api";
+import { fmtFechaLarga } from "../shared/helpers";
+import { getSession, initials } from "../shared/session";
+import type { CuentaApi } from "../shared/types";
 
 type TipoCuenta = "ahorros" | "corriente" | "";
 type ClientStep = "select" | "confirm" | "success";
@@ -35,11 +27,14 @@ const CUENTA_INFO = {
 
 export default function ClientView() {
   const navigate = useNavigate();
-  const [activeNav, setActiveNav] = useState("cuentas");
+  const session = getSession();
+  const nombre = session?.nombre || "Cliente";
   const [step, setStep] = useState<ClientStep>("select");
   const [tipoCuenta, setTipoCuenta] = useState<TipoCuenta>("");
-  const [numeroCuenta, setNumeroCuenta] = useState("");
+  const [cuentaCreada, setCuentaCreada] = useState<CuentaApi | null>(null);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const numeroCuenta = cuentaCreada?.numeroCuenta ?? "";
 
   function handleContinue() {
     if (!tipoCuenta) { setError("Selecciona un tipo de cuenta para continuar."); return; }
@@ -47,14 +42,27 @@ export default function ClientView() {
     setStep("confirm");
   }
 
-  function handleConfirm() {
-    setNumeroCuenta(generarNumeroCuenta(tipoCuenta));
-    setStep("success");
+  async function handleConfirm() {
+    if (!tipoCuenta || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const cuenta = await apiRequest<CuentaApi>("/api/cuentas", {
+        method: "POST",
+        body: JSON.stringify({ tipo: tipoCuenta === "ahorros" ? "AHORROS" : "CORRIENTE" }),
+      });
+      setCuentaCreada(cuenta);
+      setStep("success");
+    } catch (err) {
+      setError(errorMessage(err, "No fue posible abrir la cuenta. Intenta nuevamente."));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleReset() {
     setTipoCuenta("");
-    setNumeroCuenta("");
+    setCuentaCreada(null);
     setError("");
     setStep("select");
   }
@@ -69,7 +77,7 @@ export default function ClientView() {
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: "#0f0a1e" }}>
-      <Sidebar navItems={CLIENT_NAV} activeNav={activeNav} onNav={setActiveNav} userLabel={CLIENTE_ACTIVO.nombre} userSub={`CC ${CLIENTE_ACTIVO.cedula}`} userInitials={CLIENTE_ACTIVO.iniciales} badge="Banca Personal" />
+      <Sidebar variant="cliente" />
 
       <main className="flex-1 overflow-y-auto">
         <div className="px-8 py-5 flex items-center justify-between sticky top-0 z-10" style={{ background: "rgba(15,10,30,0.92)", borderBottom: "1px solid rgba(139,92,246,0.1)", backdropFilter: "blur(8px)" }}>
@@ -115,15 +123,14 @@ export default function ClientView() {
           {step === "select" && (
             <div className="flex flex-col gap-5">
               <div className="flex items-center gap-4 rounded-2xl px-5 py-4" style={{ background: "#130d24", border: "1px solid rgba(139,92,246,0.13)" }}>
-                <div className="flex items-center justify-center w-10 h-10 rounded-full font-bold" style={{ background: "linear-gradient(135deg,rgba(109,40,217,0.4),rgba(168,85,247,0.3))", color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{CLIENTE_ACTIVO.iniciales}</div>
-                <div className="flex-1">
-                  <div className="text-sm font-semibold" style={{ color: "#f1eeff" }}>{CLIENTE_ACTIVO.nombre}</div>
-                  <div className="text-xs" style={{ color: "#7c6fa0" }}>CC {CLIENTE_ACTIVO.cedula} · {CLIENTE_ACTIVO.email}</div>
+                <div className="flex items-center justify-center w-10 h-10 rounded-full font-bold" style={{ background: "linear-gradient(135deg,rgba(109,40,217,0.4),rgba(168,85,247,0.3))", color: "#c4b5fd", fontFamily: "Instrument Sans,sans-serif" }}>{initials(nombre)}</div>
+                <div className="flex-1" data-i18n-ignore>
+                  <div className="text-sm font-semibold" style={{ color: "#f1eeff" }}>{nombre}</div>
+                  <div className="text-xs" style={{ color: "#7c6fa0" }}>C.C. {session?.cedula}</div>
                 </div>
                 <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold" style={{ background: "rgba(16,185,129,0.12)", color: "#34d399", border: "1px solid rgba(16,185,129,0.25)" }}>
                   <IcoShield /> Verificado
                 </div>
-                <div className="text-xs px-3 py-1 rounded-full" style={{ background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }}>ID: {CLIENTE_ACTIVO.id}</div>
               </div>
 
               <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -185,8 +192,8 @@ export default function ClientView() {
                 </div>
                 <div className="px-6 py-5" style={{ background: "#130d24" }}>
                   {[
-                    { label: "Titular", value: CLIENTE_ACTIVO.nombre },
-                    { label: "ID de cliente", value: CLIENTE_ACTIVO.id },
+                    { label: "Titular", value: nombre },
+                    { label: "Documento", value: `C.C. ${session?.cedula ?? ""}` },
                     { label: "Tipo de cuenta", value: info.titulo },
                     { label: "Número de cuenta", value: "Se generará al confirmar", muted: true },
                     { label: "Saldo inicial", value: "$0,00 COP", highlight: true },
@@ -201,13 +208,19 @@ export default function ClientView() {
                 <div className="px-6 py-4" style={{ background: "rgba(139,92,246,0.05)", borderTop: "1px solid rgba(139,92,246,0.1)" }}>
                   <div className="flex items-start gap-2 text-xs" style={{ color: "#7c6fa0", lineHeight: "1.6" }}>
                     <span style={{ color: "#a78bfa", flexShrink: 0 }}><IcoInfo /></span>
-                    Al confirmar aceptas los <span style={{ color: "#a78bfa", cursor: "pointer" }}>Términos y Condiciones</span> de Banco X.
+                    Al confirmar aceptas los <span style={{ color: "#a78bfa" }}>Términos y Condiciones</span> de Banco X.
                   </div>
                 </div>
               </div>
+              {error && (
+                <div role="alert" className="flex items-center gap-2 rounded-xl px-4 py-3" style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                  <span style={{ color: "#f87171" }}>⚠</span>
+                  <span className="text-sm" style={{ color: "#f87171" }}>{error}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between pb-6">
                 <button onClick={() => setStep("select")} className="px-5 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ background: "transparent", color: "#7c6fa0", border: "1px solid rgba(139,92,246,0.2)" }} onMouseEnter={(e) => { e.currentTarget.style.color = "#c4b5fd"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.4)"; }} onMouseLeave={(e) => { e.currentTarget.style.color = "#7c6fa0"; e.currentTarget.style.borderColor = "rgba(139,92,246,0.2)"; }}>← Volver</button>
-                <button onClick={handleConfirm} className="px-7 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Confirmar apertura</button>
+                <button onClick={handleConfirm} disabled={saving} className="px-7 py-3 rounded-xl text-sm font-semibold transition-all hover:-translate-y-px disabled:opacity-60 disabled:translate-y-0" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }}>{saving ? "Abriendo cuenta..." : "Confirmar apertura"}</button>
               </div>
             </div>
           )}
@@ -232,7 +245,7 @@ export default function ClientView() {
                   <div className="text-lg font-bold tracking-widest mb-1" style={{ letterSpacing: "0.08em" }}>{numeroCuenta}</div>
                   <div className="text-xs opacity-60 mb-6">Número de cuenta</div>
                   <div className="flex items-end justify-between">
-                    <div><div className="text-xs opacity-60 mb-0.5">Titular</div><div className="text-sm font-semibold">{CLIENTE_ACTIVO.nombre}</div></div>
+                    <div><div className="text-xs opacity-60 mb-0.5">Titular</div><div className="text-sm font-semibold" data-i18n-ignore>{cuentaCreada?.titular ?? nombre}</div></div>
                     <div className="text-right"><div className="text-xs opacity-60 mb-0.5">Saldo disponible</div><div className="text-lg font-bold">$0</div></div>
                   </div>
                 </div>
@@ -247,7 +260,7 @@ export default function ClientView() {
                   { label: "Número de cuenta", value: numeroCuenta },
                   { label: "Tipo", value: info.titulo },
                   { label: "Saldo inicial", value: "$0,00 COP" },
-                  { label: "Fecha de apertura", value: new Date().toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" }) },
+                  { label: "Fecha de apertura", value: fmtFechaLarga(cuentaCreada?.fechaApertura ?? new Date().toISOString()) },
                 ].map((r) => (
                   <div key={r.label} className="flex items-center justify-between py-1.5" style={{ borderBottom: "1px solid rgba(139,92,246,0.07)" }}>
                     <span className="text-xs" style={{ color: "#7c6fa0" }}>{r.label}</span>
@@ -257,7 +270,8 @@ export default function ClientView() {
               </div>
               <div className="flex gap-3">
                 <button onClick={handleReset} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }} onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.25)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(139,92,246,0.15)"; }}>Abrir otra cuenta</button>
-                <button onClick={() => navigate("/inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }} onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; }} onMouseLeave={(e) => { e.currentTarget.style.transform = ""; }}>Ir al inicio</button>
+                <button onClick={() => navigate(`/consignaciones?cuenta=${encodeURIComponent(numeroCuenta)}`)} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all" style={{ background: "rgba(139,92,246,0.15)", color: "#c4b5fd", border: "1px solid rgba(139,92,246,0.3)" }}>Consignar a esta cuenta</button>
+                <button onClick={() => navigate("/inicio")} className="px-6 py-2.5 rounded-xl text-sm font-semibold transition-all hover:-translate-y-px" style={{ background: "linear-gradient(135deg,#6d28d9,#a855f7)", color: "#fff", boxShadow: "0 4px 20px rgba(109,40,217,0.35)" }}>Ir al inicio</button>
               </div>
             </div>
           )}

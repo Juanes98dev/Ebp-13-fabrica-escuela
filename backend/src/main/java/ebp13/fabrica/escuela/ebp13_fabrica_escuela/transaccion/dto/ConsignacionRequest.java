@@ -1,37 +1,18 @@
 package ebp13.fabrica.escuela.ebp13_fabrica_escuela.transaccion.dto;
 
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
-public class ConsignacionRequest {
-
-    private String cuentaDestino;
-    private BigDecimal monto;
-    private String remitente;
-
-    public ConsignacionRequest() {
-    }
-
-    public String getCuentaDestino() {
-        return cuentaDestino;
-    }
-
-    public void setCuentaDestino(String cuentaDestino) {
-        this.cuentaDestino = cuentaDestino;
-    }
-
-    public BigDecimal getMonto() {
-        return monto;
-    }
-
-    public void setMonto(BigDecimal monto) {
-        this.monto = monto;
-    }
-
-    public String getRemitente() {
-        return remitente;
-    }
-
-    public void setRemitente(String remitente) {
-        this.remitente = remitente;
-    }
+public record ConsignacionRequest(
+        @NotBlank(message = "Ingrese la cuenta de destino") String cuentaDestino,
+        @NotNull(message = "Ingrese el monto")
+        @DecimalMin(value = "0.01", message = "El monto debe ser mayor que cero")
+        @Digits(integer = 13, fraction = 2, message = "El monto no es válido")
+        BigDecimal monto,
+        @Size(max = 120, message = "El nombre del remitente no puede superar 120 caracteres") String remitente,
+        @Size(max = 120, message = "El concepto no puede superar 120 caracteres") String concepto) {
 }

@@ -5,12 +5,15 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 public class Cuenta {
@@ -32,11 +35,28 @@ public class Cuenta {
     @Column(nullable = false)
     private boolean activa = true;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cliente_id", nullable = false)
     private Cliente cliente;
 
+    private LocalDateTime fechaApertura;
+
     public Cuenta() {
+    }
+
+    @PrePersist
+    private void alCrear() {
+        if (fechaApertura == null) {
+            fechaApertura = LocalDateTime.now();
+        }
+    }
+
+    public LocalDateTime getFechaApertura() {
+        return fechaApertura;
+    }
+
+    public boolean perteneceA(Long clienteId) {
+        return cliente != null && cliente.getId().equals(clienteId);
     }
 
     public Long getId() {

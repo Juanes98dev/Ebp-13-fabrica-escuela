@@ -1,36 +1,22 @@
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Link, useSearchParams } from "react-router"
 import Sidebar from "../shared/Sidebar"
-import { apiRequest } from "../shared/api"
+import { ApiError, apiRequest, errorMessage } from "../shared/api"
+import { getSession, initials } from "../shared/session"
+import type { ClienteApi } from "../shared/types"
 import {
   IcoAlert,
   IcoCheck,
   IcoChevron,
-  IcoClientes,
   IcoClock,
-  IcoConfig,
-  IcoCuentas,
-  IcoDash,
   IcoEdit,
   IcoInfo,
   IcoLock,
   IcoMail,
-  IcoProductos,
-  IcoReportes,
   IcoSearch,
   IcoShield,
-  IcoTransfer,
   IcoUser,
 } from "../shared/icons"
-
-const MANAGER_NAV = [
-  { id: "dashboard", label: "Panel Principal", icon: <IcoDash /> },
-  { id: "clientes", label: "Clientes", icon: <IcoClientes /> },
-  { id: "cuentas", label: "Cuentas", icon: <IcoCuentas /> },
-  { id: "transacciones", label: "Transacciones", icon: <IcoTransfer /> },
-  { id: "productos", label: "Productos", icon: <IcoProductos /> },
-  { id: "reportes", label: "Reportes", icon: <IcoReportes /> },
-  { id: "configuracion", label: "Configuración", icon: <IcoConfig /> },
-]
 
 type ContactData = {
   email: string
@@ -38,57 +24,11 @@ type ContactData = {
   address: string
 }
 
-type Customer = ContactData & {
-  id: string
-  backendId?: number
-  document: string
-  name: string
-  initials: string
-  status: "Activo" | "Inactivo"
-  city: string
-}
-
 type AuditEntry = {
   field: keyof ContactData
   previous: string
   next: string
 }
-
-const INITIAL_CUSTOMERS: Customer[] = [
-  {
-    id: "BX-C10-20304050",
-    document: "1020304050",
-    name: "Laura Sofía Mendoza Ruiz",
-    initials: "LM",
-    status: "Activo",
-    email: "laura.mendoza@email.com",
-    phone: "+57 310 456 7890",
-    address: "Carrera 18 # 82-45",
-    city: "Bogotá D.C.",
-  },
-  {
-    id: "BX-C79-45612308",
-    document: "7945612308",
-    name: "Carlos Andrés Herrera",
-    initials: "CH",
-    status: "Activo",
-    email: "carlos.herrera@email.com",
-    phone: "+57 315 204 1187",
-    address: "Calle 10 # 34-21",
-    city: "Medellín",
-  },
-  {
-    id: "BX-C52-78903416",
-    document: "5278903416",
-    name: "Ana Lucía Torres",
-    initials: "AT",
-    status: "Inactivo",
-    email: "ana.torres@email.com",
-    phone: "+57 300 882 4071",
-    address: "Avenida 6N # 24-18",
-    city: "Cali",
-  },
-]
 
 const FIELD_LABELS: Record<keyof ContactData, string> = {
   email: "Correo electrónico",
@@ -98,135 +38,103 @@ const FIELD_LABELS: Record<keyof ContactData, string> = {
 
 type ViewState = "idle" | "loading" | "found" | "not-found"
 
-type ApiCustomer = {
-  id: number
-  idCliente: string
-  cedula: string
-  primerNombre: string
-  segundoNombre?: string
-  primerApellido: string
-  segundoApellido?: string
-  email?: string
-  telefono?: string
-  direccion?: string
-  ciudad?: string
-  activo: boolean
+const PATRON_CRITERIO = /^[A-Za-z0-9-]{6,30}$/
+
+function contactoDe(cliente: ClienteApi): ContactData {
+  return {
+    email: cliente.email ?? "",
+    phone: cliente.telefono ?? "",
+    address: cliente.direccion ?? "",
+  }
 }
 
 export default function CustomerEditView() {
-  const [activeNav, setActiveNav] = useState("clientes")
-  const [customers, setCustomers] = useState(INITIAL_CUSTOMERS)
-  const [query, setQuery] = useState("")
+  const [searchParams, setSearchParams] = useSearchParams()
+  const cedulaParam = searchParams.get("cedula")
+  const [query, setQuery] = useState(cedulaParam ?? "")
   const [searchError, setSearchError] = useState("")
   const [viewState, setViewState] = useState<ViewState>("idle")
-  const [selectedId, setSelectedId] = useState("")
+  const [cliente, setCliente] = useState<ClienteApi | null>(null)
   const [lastQuery, setLastQuery] = useState("")
-  const [form, setForm] = useState<ContactData>({
-    email: "",
-    phone: "",
-    address: "",
-  })
-  const [original, setOriginal] = useState<ContactData>({
-    email: "",
-    phone: "",
-    address: "",
-  })
+  const [form, setForm] = useState<ContactData>({ email: "", phone: "", address: "" })
+  const [original, setOriginal] = useState<ContactData>({ email: "", phone: "", address: "" })
   const [errors, setErrors] = useState<Partial<ContactData>>({})
+  const [saveError, setSaveError] = useState("")
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState<{
     timestamp: string
     elapsed: string
     entries: AuditEntry[]
   } | null>(null)
-
-  const selectedCustomer =
-    customers.find((customer) => customer.id === selectedId) ?? null
+  const gestor = getSession()?.nombre ?? "Gestor"
 
   const changes = useMemo(
     () =>
-      (Object.keys(FIELD_LABELS) as keyof ContactData[])
+      (Object.keys(FIELD_LABELS) as (keyof ContactData)[])
         .filter((field) => form[field].trim() !== original[field].trim())
         .map((field) => ({
           field,
-          previous: original[field],
-          next: form[field].trim(),
+          previous: original[field] || "—",
+          next: form[field].trim() || "—",
         })),
     [form, original],
   )
 
-  function loadCustomer(customer: Customer) {
-    const contact = {
-      email: customer.email,
-      phone: customer.phone,
-      address: customer.address,
-    }
-    setSelectedId(customer.id)
-    setForm(contact)
-    setOriginal(contact)
-    setErrors({})
-    setSuccess(null)
-    setViewState("found")
-  }
-
-  async function handleSearch(event: React.FormEvent) {
-    event.preventDefault()
-    const value = query.trim().replace(/\s+/g, "")
-    if (!/^[A-Za-z0-9-]{6,30}$/.test(value)) {
-      setSearchError("Ingrese una cédula o identificador válido")
-      setViewState("idle")
-      return
-    }
-
+  const buscar = useCallback(async (valor: string) => {
     setSearchError("")
     setSuccess(null)
-    setLastQuery(value)
+    setSaveError("")
+    setLastQuery(valor)
     setViewState("loading")
     try {
-      const customer = await apiRequest<ApiCustomer>(`/api/clientes/buscar/${encodeURIComponent(value)}`)
-      const name = [customer.primerNombre, customer.segundoNombre, customer.primerApellido, customer.segundoApellido].filter(Boolean).join(" ")
-      const loadedCustomer: Customer = {
-        id: customer.idCliente,
-        backendId: customer.id,
-        document: customer.cedula,
-        name,
-        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
-        status: customer.activo ? "Activo" : "Inactivo",
-        email: customer.email ?? "",
-        phone: customer.telefono ?? "",
-        address: customer.direccion ?? "",
-        city: customer.ciudad ?? "",
-      }
-      setCustomers((current) => [
-        loadedCustomer,
-        ...current.filter((item) => item.document !== loadedCustomer.document),
-      ])
-      loadCustomer(loadedCustomer)
+      const encontrado = await apiRequest<ClienteApi>(`/api/clientes/buscar/${encodeURIComponent(valor)}`)
+      const contacto = contactoDe(encontrado)
+      setCliente(encontrado)
+      setForm(contacto)
+      setOriginal(contacto)
+      setErrors({})
+      setViewState("found")
     } catch (caught) {
-      setSelectedId("")
-      setSearchError(caught instanceof Error ? caught.message : "Cliente no encontrado")
+      setCliente(null)
       setViewState("not-found")
+      if (!(caught instanceof ApiError && caught.status === 404)) {
+        setSearchError(errorMessage(caught, "No fue posible consultar el cliente"))
+      }
     }
-  }
+  }, [])
 
-  function selectExample(customer: Customer) {
-    setQuery(customer.id)
-    setSearchError("")
-    loadCustomer(customer)
+  useEffect(() => {
+    const valor = cedulaParam?.trim().replace(/\s+/g, "") ?? ""
+    if (PATRON_CRITERIO.test(valor)) void buscar(valor)
+  }, [cedulaParam, buscar])
+
+  function handleSearch(event: React.FormEvent) {
+    event.preventDefault()
+    const value = query.trim().replace(/\s+/g, "")
+    if (!PATRON_CRITERIO.test(value)) {
+      setSearchError("Ingrese una cédula o identificador válido")
+      return
+    }
+    if (value === cedulaParam) void buscar(value)
+    else setSearchParams({ cedula: value })
   }
 
   function resetSearch() {
     setQuery("")
     setSearchError("")
-    setSelectedId("")
+    setCliente(null)
     setLastQuery("")
     setErrors({})
+    setSaveError("")
     setSuccess(null)
     setViewState("idle")
+    setSearchParams({})
   }
 
   function updateField(field: keyof ContactData, value: string) {
     setForm((current) => ({ ...current, [field]: value }))
     setErrors((current) => ({ ...current, [field]: undefined }))
+    setSaveError("")
     setSuccess(null)
   }
 
@@ -247,9 +155,11 @@ export default function CustomerEditView() {
     )
       nextErrors.phone = "Ingrese un teléfono válido de 7 a 12 dígitos"
 
-    if (!form.address.trim()) nextErrors.address = "La dirección es obligatoria"
-    else if (form.address.trim().length < 8)
+    const address = form.address.trim()
+    if (address && address.length < 8)
       nextErrors.address = "La dirección debe tener al menos 8 caracteres"
+    else if (address.length > 200)
+      nextErrors.address = "La dirección no puede superar 200 caracteres"
 
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
@@ -257,42 +167,28 @@ export default function CustomerEditView() {
 
   async function saveChanges(event: React.FormEvent) {
     event.preventDefault()
-    if (!selectedCustomer || selectedCustomer.status !== "Activo") return
-    if (selectedCustomer.backendId == null) {
-      setSearchError("Este cliente de demostración no puede modificarse. Realice una consulta real.")
-      return
-    }
+    if (!cliente || !cliente.activo) return
     if (!validate() || changes.length === 0) return
 
     const start = performance.now()
     const pendingChanges = changes
     setSaving(true)
+    setSaveError("")
     setSuccess(null)
 
     try {
-      await apiRequest(`/api/clientes/${selectedCustomer.backendId}`, {
+      const actualizado = await apiRequest<ClienteApi>(`/api/clientes/${cliente.id}`, {
         method: "PUT",
         body: JSON.stringify({
           email: form.email.trim(),
           telefono: form.phone.trim(),
-          direccion: form.address.trim(),
+          direccion: form.address.trim() || null,
         }),
       })
-      const updated = {
-        email: form.email.trim(),
-        phone: form.phone.trim(),
-        address: form.address.trim(),
-      }
-      setCustomers((current) =>
-        current.map((customer) =>
-          customer.id === selectedCustomer.id
-            ? { ...customer, ...updated }
-            : customer,
-        ),
-      )
-      setOriginal(updated)
-      setForm(updated)
-      setSaving(false)
+      const contacto = contactoDe(actualizado)
+      setCliente(actualizado)
+      setOriginal(contacto)
+      setForm(contacto)
       setSuccess({
         timestamp: new Intl.DateTimeFormat("es-CO", {
           dateStyle: "long",
@@ -302,29 +198,27 @@ export default function CustomerEditView() {
         entries: pendingChanges,
       })
     } catch (error) {
+      const mensaje = errorMessage(error, "No fue posible actualizar los datos")
+      const texto = mensaje.toLowerCase()
+      if (texto.includes("correo")) setErrors({ email: mensaje })
+      else if (texto.includes("teléfono")) setErrors({ phone: mensaje })
+      else if (texto.includes("dirección")) setErrors({ address: mensaje })
+      else setSaveError(mensaje)
+    } finally {
       setSaving(false)
-      setSuccess(null)
-      setErrors({ email: error instanceof Error ? error.message : "No fue posible actualizar los datos" })
     }
   }
 
   function discardChanges() {
     setForm(original)
     setErrors({})
+    setSaveError("")
     setSuccess(null)
   }
 
   return (
     <div className="flex h-full overflow-hidden bg-bg-base">
-      <Sidebar
-        navItems={MANAGER_NAV}
-        activeNav={activeNav}
-        onNav={setActiveNav}
-        userLabel="Gestor Rodríguez"
-        userSub="Gestor Bancario"
-        userInitials="GR"
-        badge="Plataforma Gestión"
-      />
+      <Sidebar variant="gestor" />
 
       <main className="flex-1 overflow-y-auto">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-bg-base/95 px-8 py-5 backdrop-blur">
@@ -395,7 +289,7 @@ export default function CustomerEditView() {
                       setSearchError("")
                     }}
                     aria-invalid={Boolean(searchError)}
-                    placeholder="Ej: BX-C10-20304050"
+                    placeholder="Ej: 1020304050 o BX-..."
                     className={`w-full rounded-xl border bg-purple-400/5 py-3 pl-11 pr-4 text-sm text-text-primary outline-none transition-all focus:ring-4 focus:ring-purple-400/10 ${
                       searchError
                         ? "border-danger"
@@ -459,7 +353,7 @@ export default function CustomerEditView() {
                 <IcoAlert />
               </span>
               <h2 className="font-display text-lg font-bold text-text-primary">
-                Cliente no encontrado
+                {searchError ? "No fue posible completar la consulta" : "Cliente no encontrado"}
               </h2>
               <p className="mt-1 text-sm text-text-muted">
                 {searchError || `No encontramos un cliente asociado a “${lastQuery}”.`}
@@ -474,37 +368,41 @@ export default function CustomerEditView() {
             </div>
           )}
 
-          {viewState === "found" && selectedCustomer && (
+          {viewState === "found" && cliente && (
             <div className="flex flex-col gap-5">
               <section className="rounded-2xl border border-border bg-sidebar">
                 <div className="flex flex-col gap-5 border-b border-border bg-gradient-to-r from-purple-600/15 to-transparent p-6 sm:flex-row sm:items-center">
                   <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-accent font-display text-lg font-bold text-white">
-                    {selectedCustomer.initials}
+                    {initials(cliente.nombreCompleto)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <h2 className="font-display text-xl font-bold text-text-primary">
-                        {selectedCustomer.name}
+                        {cliente.nombreCompleto}
                       </h2>
                       <span
                         className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                          selectedCustomer.status === "Activo"
+                          cliente.activo
                             ? "border-success/25 bg-success/10 text-emerald-400"
                             : "border-border bg-purple-400/5 text-text-muted"
                         }`}
                       >
                         <span
                           className={`h-1.5 w-1.5 rounded-full ${
-                            selectedCustomer.status === "Activo"
+                            cliente.activo
                               ? "bg-success"
                               : "bg-text-muted"
                           }`}
                         />
-                        {selectedCustomer.status}
+                        {cliente.activo ? "Activo" : "Inactivo"}
                       </span>
                     </div>
                     <p className="text-xs text-text-muted">
-                      Perfil verificado · {selectedCustomer.city}
+                      {cliente.ciudad ?? "Ciudad no registrada"}
+                      {" · "}
+                      <Link to={`/gestor/clientes?cedula=${encodeURIComponent(cliente.cedula)}`} className="text-purple-300 hover:underline">
+                        Ver perfil completo
+                      </Link>
                     </p>
                   </div>
                   <button
@@ -516,7 +414,7 @@ export default function CustomerEditView() {
                   </button>
                 </div>
 
-                {selectedCustomer.status === "Inactivo" ? (
+                {!cliente.activo ? (
                   <div className="m-6 flex items-start gap-3 rounded-xl border border-warn/25 bg-warn/10 p-4">
                     <span className="mt-0.5 text-amber-400">
                       <IcoAlert />
@@ -551,11 +449,11 @@ export default function CustomerEditView() {
                       <div className="grid gap-4 sm:grid-cols-2">
                         <LockedField
                           label="Número de cédula"
-                          value={selectedCustomer.document}
+                          value={cliente.cedula}
                         />
                         <LockedField
                           label="Identificador Banco X"
-                          value={selectedCustomer.id}
+                          value={cliente.idCliente}
                         />
                       </div>
                     </div>
@@ -601,6 +499,7 @@ export default function CustomerEditView() {
                             value={form.address}
                             placeholder="Calle, número y complemento"
                             error={errors.address}
+                            required={false}
                             onChange={(value) => updateField("address", value)}
                           />
                         </div>
@@ -623,7 +522,7 @@ export default function CustomerEditView() {
                       </div>
                     )}
 
-                    {Object.keys(errors).length > 0 && (
+                    {(saveError || Object.values(errors).some(Boolean)) && (
                       <div
                         role="alert"
                         className="mt-6 flex items-start gap-3 rounded-xl border border-danger/25 bg-danger/10 p-4"
@@ -636,7 +535,7 @@ export default function CustomerEditView() {
                             No fue posible guardar los cambios
                           </div>
                           <p className="mt-1 text-xs text-red-200/65">
-                            Revisa los campos resaltados e intenta nuevamente.
+                            {saveError || "Revisa los campos resaltados e intenta nuevamente."}
                           </p>
                         </div>
                       </div>
@@ -710,7 +609,7 @@ export default function CustomerEditView() {
                         Registro de auditoría
                       </h4>
                       <span className="text-xs text-text-muted">
-                        {success.timestamp} · Gestor Rodríguez
+                        {success.timestamp} · {gestor}
                       </span>
                     </div>
                     <div className="overflow-hidden rounded-xl border border-border">
@@ -780,6 +679,7 @@ function EditableField({
   error,
   onChange,
   icon,
+  required = true,
 }: {
   id: string
   label: string
@@ -789,6 +689,7 @@ function EditableField({
   error?: string
   onChange: (value: string) => void
   icon?: React.ReactNode
+  required?: boolean
 }) {
   return (
     <div>
@@ -796,7 +697,7 @@ function EditableField({
         htmlFor={id}
         className="mb-2 block font-display text-xs font-semibold uppercase tracking-wide text-purple-200"
       >
-        {label} <span className="text-accent">*</span>
+        {label} {required ? <span className="text-accent">*</span> : <span className="normal-case text-text-muted">(opcional)</span>}
       </label>
       <div className="relative">
         {icon && (

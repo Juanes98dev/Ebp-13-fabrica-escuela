@@ -7,4 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SesionRepository extends JpaRepository<SesionActiva, Long> {
     List<SesionActiva> findByUsuarioIdAndActivaTrue(Long usuarioId);
     Optional<SesionActiva> findBySessionTokenIdAndActivaTrue(String sessionTokenId);
+    List<SesionActiva> findTop10ByUsuarioIdOrderByFechaInicioDesc(Long usuarioId);
 }

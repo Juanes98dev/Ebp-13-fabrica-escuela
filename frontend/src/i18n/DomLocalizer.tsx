@@ -74,6 +74,18 @@ function formatEnglishValues(value: string) {
   return output
 }
 
+// Las frases más largas van primero para que no las fragmenten coincidencias parciales.
+const partialPhrases = Object.entries(englishPhrases)
+  .filter(([spanish]) => spanish.trim().length > 2)
+  .sort(([a], [b]) => b.length - a.length)
+  .map(([spanish, english]) => ({
+    pattern: new RegExp(
+      `(?<![\\p{L}\\p{N}])${spanish.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`,
+      "gu",
+    ),
+    english,
+  }))
+
 function translateText(value: string) {
   const leading = value.match(/^\s*/)?.[0] ?? ""
   const trailing = value.match(/\s*$/)?.[0] ?? ""
@@ -82,16 +94,9 @@ function translateText(value: string) {
 
   let translated = englishPhrases[content] ?? content
   if (translated === content) {
-    Object.entries(englishPhrases)
-      .sort(([a], [b]) => b.length - a.length)
-      .forEach(([spanish, english]) => {
-        if (spanish.trim().length <= 2) return
-        const escaped = spanish.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-        translated = translated.replace(
-          new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "gu"),
-          english,
-        )
-      })
+    for (const { pattern, english } of partialPhrases) {
+      translated = translated.replace(pattern, english)
+    }
   }
   return `${leading}${formatEnglishValues(translated)}${trailing}`
 }
