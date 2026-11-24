@@ -81,7 +81,7 @@ export default function CustomerLookupView() {
         document: customer.cedula,
         formattedDocument: customer.cedula,
         name,
-        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpper(),
+        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
         status: customer.activo ? "Activo" : "Inactivo",
         customerSince: "No disponible",
         personal: [

@@ -187,7 +187,7 @@ export default function CustomerEditView() {
         id: String(customer.id),
         document: customer.cedula,
         name,
-        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpper(),
+        initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
         status: customer.activo ? "Activo" : "Inactivo",
         email: customer.email ?? "",
         phone: customer.telefono ?? "",
