@@ -32,14 +32,14 @@ function GestorRoute({ children }: { children: ReactNode }) {
   if (!token || role !== "GESTOR") {
     return <Navigate to="/login" replace />
   }
+  return children
+}
 
-  function UsuarioRoute({ children }: { children: ReactNode }) {
-    const role = window.localStorage.getItem("bancox-role")
-    const token = window.localStorage.getItem("bancox-session-token")
-    if (!token || (role !== "GESTOR" && role !== "CLIENTE")) {
-      return <Navigate to="/login" replace />
-    }
-    return children
+function UsuarioRoute({ children }: { children: ReactNode }) {
+  const role = window.localStorage.getItem("bancox-role")
+  const token = window.localStorage.getItem("bancox-session-token")
+  if (!token || (role !== "GESTOR" && role !== "CLIENTE")) {
+    return <Navigate to="/login" replace />
   }
   return children
 }
