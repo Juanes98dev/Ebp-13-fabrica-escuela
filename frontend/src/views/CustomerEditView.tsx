@@ -169,8 +169,8 @@ export default function CustomerEditView() {
 
   async function handleSearch(event: React.FormEvent) {
     event.preventDefault()
-    const value = query.trim()
-    if (!/^[A-Za-z0-9-]{6,20}$/.test(value)) {
+    const value = query.trim().replace(/\s+/g, "")
+    if (!/^[A-Za-z0-9-]{6,30}$/.test(value)) {
       setSearchError("Ingrese una cédula o identificador válido")
       setViewState("idle")
       return
@@ -194,8 +194,9 @@ export default function CustomerEditView() {
         address: customer.direccion ?? "",
         city: customer.ciudad ?? "",
       })
-    } catch {
+    } catch (caught) {
       setSelectedId("")
+      setSearchError(caught instanceof Error ? caught.message : "Cliente no encontrado")
       setViewState("not-found")
     }
   }
@@ -499,7 +500,7 @@ export default function CustomerEditView() {
                 Cliente no encontrado
               </h2>
               <p className="mt-1 text-sm text-text-muted">
-                No encontramos un cliente asociado a “{lastQuery}”.
+                {searchError || `No encontramos un cliente asociado a “${lastQuery}”.`}
               </p>
               <button
                 type="button"
