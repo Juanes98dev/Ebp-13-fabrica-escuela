@@ -40,6 +40,7 @@ type ContactData = {
 
 type Customer = ContactData & {
   id: string
+  backendId?: number
   document: string
   name: string
   initials: string
@@ -183,8 +184,9 @@ export default function CustomerEditView() {
     try {
       const customer = await apiRequest<ApiCustomer>(`/api/clientes/buscar/${encodeURIComponent(value)}`)
       const name = [customer.primerNombre, customer.segundoNombre, customer.primerApellido, customer.segundoApellido].filter(Boolean).join(" ")
-      loadCustomer({
-        id: String(customer.id),
+      const loadedCustomer: Customer = {
+        id: customer.idCliente,
+        backendId: customer.id,
         document: customer.cedula,
         name,
         initials: name.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
@@ -193,7 +195,12 @@ export default function CustomerEditView() {
         phone: customer.telefono ?? "",
         address: customer.direccion ?? "",
         city: customer.ciudad ?? "",
-      })
+      }
+      setCustomers((current) => [
+        loadedCustomer,
+        ...current.filter((item) => item.document !== loadedCustomer.document),
+      ])
+      loadCustomer(loadedCustomer)
     } catch (caught) {
       setSelectedId("")
       setSearchError(caught instanceof Error ? caught.message : "Cliente no encontrado")
@@ -251,6 +258,10 @@ export default function CustomerEditView() {
   async function saveChanges(event: React.FormEvent) {
     event.preventDefault()
     if (!selectedCustomer || selectedCustomer.status !== "Activo") return
+    if (selectedCustomer.backendId == null) {
+      setSearchError("Este cliente de demostración no puede modificarse. Realice una consulta real.")
+      return
+    }
     if (!validate() || changes.length === 0) return
 
     const start = performance.now()
@@ -259,7 +270,7 @@ export default function CustomerEditView() {
     setSuccess(null)
 
     try {
-      await apiRequest(`/api/clientes/${selectedCustomer.id}`, {
+      await apiRequest(`/api/clientes/${selectedCustomer.backendId}`, {
         method: "PUT",
         body: JSON.stringify({
           email: form.email.trim(),
