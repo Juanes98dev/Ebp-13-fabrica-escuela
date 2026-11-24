@@ -495,18 +495,6 @@ export default function PasswordRecoveryView() {
                 </form>
 
                 <div className="mt-6 rounded-xl border border-border bg-sidebar p-4">
-                  <div className="mt-3 border-t border-border pt-3">
-                    <button
-                      type="button"
-                      onClick={simulateRequestLimit}
-                      className="text-xs font-semibold text-purple-300 hover:text-purple-200"
-                    >
-                      Simular 3 solicitudes en la última hora
-                    </button>
-                    <span className="float-right text-[10px] text-text-muted">
-                      {requestCount}/3 solicitudes
-                    </span>
-                  </div>
                 </div>
               </div>
             )}
@@ -640,19 +628,6 @@ export default function PasswordRecoveryView() {
                       482913
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={simulateExpiredCode}
-                    className="rounded-xl border border-warn/20 bg-warn/5 p-4 text-left hover:bg-warn/10"
-                  >
-                    <span className="flex items-center gap-2 text-xs font-semibold text-amber-400">
-                      <IcoClock />
-                      Simular código vencido
-                    </span>
-                    <span className="mt-1.5 block text-[11px] text-text-muted">
-                      Avanza el tiempo más de 10 minutos.
-                    </span>
-                  </button>
                 </div>
 
                 <button

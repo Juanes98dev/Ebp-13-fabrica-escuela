@@ -82,16 +82,14 @@ type HistoryTransaction = {
 export default function TransactionHistoryView() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("extractos");
-  const [account, setAccount] = useState("301-847-2291-05");
+  const [account, setAccount] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [appliedRange, setAppliedRange] = useState({ start: "", end: "" });
   const [status, setStatus] = useState<HistoryStatus>("ready");
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [transactions, setTransactions] = useState<HistoryTransaction[]>(
-    TRANSACTIONS,
-  );
+  const [transactions, setTransactions] = useState<HistoryTransaction[]>([]);
 
   useEffect(() => {
     if (!account) return;
@@ -212,8 +210,7 @@ export default function TransactionHistoryView() {
                 <div>
                   <label htmlFor="history-account" className="block text-xs font-semibold tracking-wide uppercase mb-2 text-purple-200 font-display">Cuenta</label>
                   <select id="history-account" value={account} onChange={(event) => setAccount(event.target.value)} className="w-full px-3.5 py-3 rounded-xl text-sm outline-none appearance-none bg-purple-400/5 text-text-primary border border-border focus:border-purple-400/60 focus:ring-4 focus:ring-purple-400/10">
-                    <option value="301-847-2291-05" className="bg-surface">Ahorros · 301-847-2291-05</option>
-                    <option value="501-293-8841-17" className="bg-surface">Corriente · 501-293-8841-17</option>
+                    <option value="" className="bg-surface">No hay cuentas disponibles</option>
                   </select>
                 </div>
                 <div>

@@ -104,7 +104,7 @@ export default function DeviceSessionView() {
   function recoverControl(event: React.FormEvent) {
     event.preventDefault()
     const nextErrors: Record<string, string> = {}
-    if (currentPassword !== "BancoX2026!") {
+    if (currentPassword.length < 8) {
       nextErrors.currentPassword = "La contraseña actual es incorrecta"
     }
     if (!passwordRules.every((rule) => rule.valid)) {
@@ -419,14 +419,6 @@ export default function DeviceSessionView() {
                     <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
                       Inicia sesión desde un iPhone simulado.
                     </p>
-                    <button
-                      type="button"
-                      onClick={simulateRemoteAccess}
-                      disabled={demoState === "invalidating"}
-                      className="mt-4 w-full rounded-lg bg-purple-600/20 py-2 text-xs font-semibold text-purple-200 hover:bg-purple-600/30 disabled:opacity-50"
-                    >
-                      Simular nuevo acceso
-                    </button>
                   </div>
 
                   <div className="rounded-xl border border-border bg-purple-400/5 p-4">

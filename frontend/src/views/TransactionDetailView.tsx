@@ -29,80 +29,22 @@ const CLIENT_NAV = [
   { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
 ];
 
-const TRANSACTIONS = [
-  {
-    id: "BX-984210",
-    type: "Transferencia recibida",
-    direction: "income",
-    origin: "Cuenta de ahorros · •••• 4488",
-    destination: "Cuenta de ahorros · 301-847-2291-05",
-    amount: 500_000,
-    date: "12 de septiembre de 2026",
-    time: "2:12 p. m.",
-    status: "Confirmada",
-    description: "Transferencia de Carlos Herrera",
-    reference: "REF-8812KA",
-    channel: "Banca móvil",
-  },
-  {
-    id: "BX-984209",
-    type: "Compra con tarjeta",
-    direction: "expense",
-    origin: "Cuenta de ahorros · 301-847-2291-05",
-    destination: "Comercio · •••• 7392",
-    amount: 86_400,
-    date: "11 de septiembre de 2026",
-    time: "1:19 p. m.",
-    status: "Confirmada",
-    description: "Compra en Mercado Central",
-    reference: "REF-7741MX",
-    channel: "Datáfono",
-  },
-  {
-    id: "BX-984208",
-    type: "Pago de servicios",
-    direction: "expense",
-    origin: "Cuenta de ahorros · 301-847-2291-05",
-    destination: "Convenio de recaudo · •••• 2051",
-    amount: 142_900,
-    date: "10 de septiembre de 2026",
-    time: "12:26 p. m.",
-    status: "Confirmada",
-    description: "Factura de energía",
-    reference: "REF-6294QZ",
-    channel: "Banca web",
-  },
-  {
-    id: "BX-984207",
-    type: "Transferencia enviada",
-    direction: "expense",
-    origin: "Cuenta de ahorros · 301-847-2291-05",
-    destination: "Cuenta corriente · •••• 1022",
-    amount: 320_000,
-    date: "9 de septiembre de 2026",
-    time: "11:33 a. m.",
-    status: "Confirmada",
-    description: "Transferencia a Lucía Fernández",
-    reference: "REF-5208LP",
-    channel: "Banca móvil",
-  },
-  {
-    id: "BX-984206",
-    type: "Consignación",
-    direction: "income",
-    origin: "Corresponsal bancario · •••• 8810",
-    destination: "Cuenta de ahorros · 301-847-2291-05",
-    amount: 1_250_000,
-    date: "8 de septiembre de 2026",
-    time: "10:40 a. m.",
-    status: "Confirmada",
-    description: "Consignación en efectivo",
-    reference: "REF-4157NE",
-    channel: "Corresponsal",
-  },
-];
+type Transaction = {
+  id: string;
+  type: string;
+  direction: "income" | "expense";
+  origin: string;
+  destination: string;
+  amount: number;
+  date: string;
+  time: string;
+  status: string;
+  description: string;
+  reference: string;
+  channel: string;
+};
 
-type Transaction = (typeof TRANSACTIONS)[number];
+const TRANSACTIONS: Transaction[] = [];
 type DetailStatus = "idle" | "loading" | "success" | "not-found";
 
 export default function TransactionDetailView() {

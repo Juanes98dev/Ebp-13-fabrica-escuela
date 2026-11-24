@@ -226,7 +226,7 @@ export default function ManagerView() {
                         type="text" inputMode="numeric" value={form.cedula} maxLength={10}
                         onChange={(ev) => handleCedulaChange(ev.target.value)}
                         onBlur={handleCedulaBlur}
-                        placeholder="Ej: 1023456789"
+                        placeholder="Ingrese la cédula"
                         className="w-full px-3.5 py-2.5 pr-9 rounded-lg text-sm outline-none transition-all"
                         style={{ background: "rgba(139,92,246,0.06)", border: `1px solid ${errors.cedula ? "#ef4444" : cedulaStatus === "ok" ? "#10b981" : "rgba(139,92,246,0.22)"}`, color: "#f1eeff" }}
                         onFocus={(ev) => { ev.currentTarget.style.boxShadow = "0 0 0 3px rgba(139,92,246,0.12)"; }}

@@ -273,13 +273,13 @@ export default function SessionLogoutView() {
                 <span className="text-xs text-purple-200">Saldo total</span>
                 <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-400/15 text-purple-300"><IcoCuentas /></span>
               </div>
-              <div className="text-2xl font-bold text-text-primary font-display">$ 6.070.500</div>
-              <div className="text-xs text-text-muted mt-1">Disponible en 2 cuentas</div>
+              <div className="text-2xl font-bold text-text-primary font-display">$ 0</div>
+              <div className="text-xs text-text-muted mt-1">Sin cuentas registradas</div>
             </div>
             <div className="rounded-2xl p-5 bg-sidebar border border-border">
               <div className="text-xs text-text-muted mb-5">Último acceso</div>
-              <div className="text-base font-semibold text-text-primary font-display">Hoy, 10:42 a. m.</div>
-              <div className="text-xs text-emerald-400 mt-1">Dispositivo reconocido</div>
+              <div className="text-base font-semibold text-text-primary font-display">Sin actividad registrada</div>
+              <div className="text-xs text-text-muted mt-1">Disponible cuando exista actividad</div>
             </div>
             <div className="rounded-2xl p-5 bg-sidebar border border-border">
               <div className="text-xs text-text-muted mb-5">Seguridad de sesión</div>
@@ -319,10 +319,6 @@ export default function SessionLogoutView() {
                 <button type="button" onClick={() => setRemainingSeconds(600)} className="w-full mt-3 py-2 rounded-lg text-xs font-semibold text-purple-300 border border-border hover:bg-purple-400/10">Mantener sesión activa</button>
               </div>
 
-              <button type="button" onClick={simulateExpiredSession} className="w-full p-4 rounded-xl text-left bg-warn/5 border border-warn/20 hover:bg-warn/10">
-                <span className="flex items-center gap-2 text-xs font-semibold text-amber-400"><IcoClock />Simular 10 minutos sin actividad</span>
-                <span className="block text-xs text-text-muted mt-1.5">Prueba el cierre automático de la sesión.</span>
-              </button>
             </aside>
           </div>
         </div>

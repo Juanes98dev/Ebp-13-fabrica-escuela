@@ -32,8 +32,8 @@ const CLIENT_NAV = [
   { id: "perfil", label: "Perfil y seguridad", icon: <IcoUser /> },
 ];
 
-const CURRENT_PASSWORD = "BancoX2026!";
-const TAKEN_USERNAMES = ["carlos.herrera", "administrador", "soporte.bancox"];
+const CURRENT_PASSWORD = "";
+const TAKEN_USERNAMES: string[] = [];
 
 type UsernameStatus = "idle" | "checking" | "available" | "taken";
 

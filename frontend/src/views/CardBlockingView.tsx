@@ -480,39 +480,6 @@ export default function CardBlockingView() {
                 </div>
               </div>
 
-              <div className="mb-4 rounded-xl border border-border bg-purple-400/5 p-4">
-                <div className="mb-3 flex items-center justify-between text-xs">
-                  <span className="text-text-muted">Comercio</span>
-                  <span className="font-semibold text-text-secondary">
-                    Compra de prueba
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-muted">Monto</span>
-                  <span className="font-semibold text-text-primary">
-                    $ 50.000
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={simulateTransaction}
-                disabled={transactionState === "testing"}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-purple-400/10 px-4 py-2.5 text-sm font-semibold text-purple-200 transition-colors hover:bg-purple-400/15 disabled:opacity-60"
-              >
-                {transactionState === "testing" ? (
-                  <>
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-purple-200/30 border-t-purple-200" />
-                    Procesando...
-                  </>
-                ) : (
-                  <>
-                    <IcoTransfer />
-                    Simular transacción
-                  </>
-                )}
-              </button>
 
               {transactionState === "rejected" && (
                 <div

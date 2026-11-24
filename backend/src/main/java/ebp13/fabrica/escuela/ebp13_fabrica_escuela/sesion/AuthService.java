@@ -50,6 +50,7 @@ public class AuthService {
                 "sessionToken", nueva.getSessionTokenId(),
                 "usuarioId", cliente.getId(),
                 "rol", cliente.getRol(),
+                "cedula", cliente.getCedula(),
                 "idiomaPreferido", cliente.getIdiomaPreferido(),
                 "nombre", (cliente.getPrimerNombre() == null ? "" : cliente.getPrimerNombre()));
     }

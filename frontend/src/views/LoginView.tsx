@@ -65,6 +65,7 @@ export default function LoginView() {
         rol: string
         idiomaPreferido: string
         nombre: string
+        cedula: string
       }>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ cedula: username.trim(), password }),
@@ -73,6 +74,7 @@ export default function LoginView() {
       window.localStorage.setItem("bancox-user-id", String(result.usuarioId))
       window.localStorage.setItem("bancox-role", result.rol)
       window.localStorage.setItem("bancox-name", result.nombre)
+      window.localStorage.setItem("bancox-cedula", result.cedula)
       setStatus("idle")
       setAttempts(0)
       navigate(result.rol === "GESTOR" ? "/gestor/clientes" : "/inicio")
@@ -155,7 +157,7 @@ export default function LoginView() {
                   Acceso exitoso
                 </span>
                 <h1 className="text-2xl font-bold mb-1 text-text-primary font-display">
-                  Hola, Valentina
+                  Hola, {window.localStorage.getItem("bancox-name") || "Cliente"}
                 </h1>
                 <p className="text-sm text-text-muted">
                   Este es el resumen financiero de tus productos Banco X.
@@ -195,10 +197,10 @@ export default function LoginView() {
                   </span>
                 </div>
                 <div className="text-2xl font-bold text-text-primary font-display">
-                  $ 6.070.500
+                  $ 0
                 </div>
                 <div className="text-xs text-text-muted mt-1">
-                  Disponible en 2 cuentas
+                  Sin cuentas registradas
                 </div>
               </div>
               <div className="rounded-2xl p-5 bg-sidebar border border-border">

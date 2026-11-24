@@ -196,35 +196,6 @@ export default function CustomerLookupView() {
             </p>
           </div>
 
-          <div className="rounded-2xl p-5 mb-6 bg-sidebar border border-border">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-              <div>
-                <div className="text-sm font-semibold text-purple-200 font-display">Clientes de prueba</div>
-                <p className="text-xs text-text-muted mt-1">Selecciona uno para completar la cédula y consultar su información.</p>
-              </div>
-              <span className="text-xs text-text-muted">{CLIENTES_CONSULTA.length} registros disponibles</span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {CLIENTES_CONSULTA.map((customer) => (
-                <button
-                  key={customer.id}
-                  type="button"
-                  onClick={() => useTestCustomer(customer.document)}
-                  className="rounded-xl p-3 text-left bg-purple-400/5 border border-border transition-colors hover:bg-purple-400/10 hover:border-border-hover"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-600/20 text-xs font-bold text-purple-200 font-display">
-                      {customer.initials}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold text-text-secondary">{customer.name}</span>
-                      <span className="block mt-0.5 text-xs text-text-muted">CC {customer.document}</span>
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
 
           {state === "idle" && !error && (
             <div className="rounded-2xl py-14 px-6 flex flex-col items-center text-center bg-sidebar border border-border">

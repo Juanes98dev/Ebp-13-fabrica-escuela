@@ -384,68 +384,6 @@ export default function AccountDeactivationView() {
             </div>
           </form>
 
-          <section className="mb-6 rounded-2xl border border-border bg-sidebar p-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="font-display text-sm font-semibold text-purple-200">
-                  Escenarios de prueba
-                </h2>
-                <p className="mt-1 text-xs text-text-muted">
-                  Selecciona una cuenta para validar las reglas de
-                  desactivación.
-                </p>
-              </div>
-              <span className="text-xs text-text-muted">
-                3 cuentas disponibles
-              </span>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {accounts.map((account) => {
-                const eligible =
-                  account.status === "Activa" &&
-                  account.balance === 0 &&
-                  account.activeCards === 0
-                const condition =
-                  account.status === "Inactiva"
-                    ? "Cuenta inactiva"
-                    : account.balance > 0
-                      ? `Saldo ${formatCurrency(account.balance)}`
-                      : account.activeCards > 0
-                        ? `${account.activeCards} tarjeta activa`
-                        : "Apta para desactivar"
-                return (
-                  <button
-                    key={account.number}
-                    type="button"
-                    onClick={() => selectExample(account)}
-                    className={`rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 ${
-                      selectedNumber === account.number && viewState === "found"
-                        ? "border-purple-400/50 bg-purple-600/15"
-                        : "border-border bg-purple-400/5 hover:border-border-hover hover:bg-purple-400/10"
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-600/20 text-purple-200">
-                        <IcoCuentas />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-semibold text-text-secondary">
-                          {account.number}
-                        </span>
-                        <span
-                          className={`mt-0.5 block truncate text-xs ${
-                            eligible ? "text-emerald-400" : "text-amber-400"
-                          }`}
-                        >
-                          {condition}
-                        </span>
-                      </span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </section>
 
           {viewState === "idle" && (
             <div className="rounded-2xl border border-border bg-sidebar px-6 py-12 text-center">

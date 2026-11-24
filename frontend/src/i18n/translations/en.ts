@@ -91,7 +91,6 @@ export const englishPhrases: Record<string, string> = {
   "Ocultar contraseña": "Hide password",
   "Mostrar contraseña": "Show password",
   "Acceso exitoso": "Successful access",
-  "Hola, Valentina": "Hello, Valentina",
   "Este es el resumen financiero de tus productos Banco X.":
     "Here is the financial summary of your Banco X products.",
   "Sesión iniciada correctamente": "Signed in successfully",

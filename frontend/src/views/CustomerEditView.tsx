@@ -434,55 +434,6 @@ export default function CustomerEditView() {
             </div>
           </form>
 
-          <section className="mb-6 rounded-2xl border border-border bg-sidebar p-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="font-display text-sm font-semibold text-purple-200">
-                  Clientes de prueba
-                </h2>
-                <p className="mt-1 text-xs text-text-muted">
-                  Selecciona un perfil para completar la consulta.
-                </p>
-              </div>
-              <span className="text-xs text-text-muted">
-                2 activos · 1 inactivo
-              </span>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              {customers.map((customer) => (
-                <button
-                  key={customer.id}
-                  type="button"
-                  onClick={() => selectExample(customer)}
-                  className={`rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 ${
-                    selectedId === customer.id && viewState === "found"
-                      ? "border-purple-400/50 bg-purple-600/15"
-                      : "border-border bg-purple-400/5 hover:border-border-hover hover:bg-purple-400/10"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-600/20 font-display text-xs font-bold text-purple-200">
-                      {customer.initials}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-semibold text-text-secondary">
-                        {customer.name}
-                      </span>
-                      <span
-                        className={`mt-0.5 block text-xs ${
-                          customer.status === "Activo"
-                            ? "text-emerald-400"
-                            : "text-text-muted"
-                        }`}
-                      >
-                        {customer.status} · {customer.city}
-                      </span>
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
 
           {viewState === "idle" && (
             <div className="rounded-2xl border border-border bg-sidebar px-6 py-12 text-center">

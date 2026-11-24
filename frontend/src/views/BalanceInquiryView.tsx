@@ -29,22 +29,15 @@ const CLIENT_NAV = [
   { id: "extractos", label: "Extractos", icon: <IcoExtractos /> },
 ];
 
-const OWN_ACCOUNTS = [
-  {
-    number: "301-847-2291-05",
-    type: "Cuenta de ahorros",
-    balance: 250_000,
-    lastTransaction: "Transferencia recibida",
-    lastTransactionDate: "8 sep 2026, 2:23 p. m.",
-  },
-  {
-    number: "501-293-8841-17",
-    type: "Cuenta corriente",
-    balance: 1_250_000,
-    lastTransaction: "Pago de servicios",
-    lastTransactionDate: "7 sep 2026, 9:10 a. m.",
-  },
-];
+type OwnAccount = {
+  number: string
+  type: string
+  balance: number
+  lastTransaction: string
+  lastTransactionDate: string
+}
+
+const OWN_ACCOUNTS: OwnAccount[] = [];
 
 const FOREIGN_ACCOUNT = "301-002-4419-88";
 type QueryStatus = "idle" | "loading" | "success" | "forbidden" | "not-found";
@@ -218,7 +211,7 @@ export default function BalanceInquiryView() {
                           id="balance-account"
                           value={accountNumber}
                           onChange={(event) => handleChange(event.target.value)}
-                          placeholder="Ej: 301-847-2291-05"
+                          placeholder="Ingrese el número de cuenta"
                           autoComplete="off"
                           aria-invalid={Boolean(validationError)}
                           className={`w-full pl-11 pr-4 py-3 rounded-xl text-sm outline-none bg-purple-400/5 text-text-primary border transition-all focus:ring-4 focus:ring-purple-400/10 ${validationError ? "border-danger" : "border-border focus:border-purple-400/60"}`}
